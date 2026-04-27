@@ -7,8 +7,6 @@ import { useSync } from './hooks/useSync';
 import './App.css';
 
 
-console.log(VITE_API_URL)
-
 export default function App() {
   const [page, setPage] = useState('dashboard');
   const { isOnline, isSyncing } = useSync();
