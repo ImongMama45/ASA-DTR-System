@@ -3,6 +3,8 @@ import { getSyncQueue, clearSyncItem } from '../db';
 
 const API_BASE = 'https://asa-dtr-system.onrender.com/api/';
 
+console.log(API_BASE)
+
 export function useSync() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
