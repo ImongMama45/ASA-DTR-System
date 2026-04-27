@@ -52,7 +52,6 @@ export function useSync() {
 }
 
 export async function fetchDashboardStats() {
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
   const res = await fetch(`${API_BASE}/dashboard/`);
   if (!res.ok) throw new Error('offline');
   return res.json();
