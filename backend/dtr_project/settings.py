@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dtr-admin-secret-key-change-in-production-xyz789')
 DEBUG = False
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['https://alliance-of-student-assistance-dtr-admin.onrender.com']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
