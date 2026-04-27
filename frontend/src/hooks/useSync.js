@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getSyncQueue, clearSyncItem } from '../db';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://asa-dtr-system.onrender.com/api/';
 
 export function useSync() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
