@@ -1,13 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
 import Generator from './pages/Generator';
 import Review from './pages/Review';
 import { useSync } from './hooks/useSync';
 import './App.css';
-
-
-console.log("tite")
 
 export default function App() {
   const [page, setPage] = useState('dashboard');
@@ -48,9 +45,9 @@ export default function App() {
 
       <main className="app-main">
         {page === 'dashboard' && <Dashboard isOnline={isOnline} setPage={setPage} />}
-        {page === 'employees' && <Employees />}
-        {page === 'generator' && <Generator onDone={() => setPage('review')} />}
-        {page === 'review' && <Review />}
+        {page === 'employees' && <Employees isOnline={isOnline} />}
+        {page === 'generator' && <Generator isOnline={isOnline} onDone={() => setPage('review')} />}
+        {page === 'review' && <Review isOnline={isOnline} />}
       </main>
     </div>
   );

@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee } from '../db';
+import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees } from '../db';
+import {
+  fetchEmployees,
+  createServerEmployee,
+  updateServerEmployee,
+  deleteServerEmployee,
+} from '../hooks/useSync';
 
 function SearchableDropdown({ employees, onSelect }) {
   const [query, setQuery] = useState('');
@@ -51,15 +57,24 @@ function SearchableDropdown({ employees, onSelect }) {
   );
 }
 
-export default function Employees() {
+export default function Employees({ isOnline }) {
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', start: '' });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
-  useEffect(() => { load(); }, []);
+  // Reload whenever online status changes so new devices get server data immediately
+  useEffect(() => { load(); }, [isOnline]);
 
   async function load() {
+    if (isOnline) {
+      try {
+        const list = await fetchEmployees();
+        await seedEmployees(list);
+      } catch (e) {
+        // Server unreachable — fall through to local
+      }
+    }
     setEmployees(await getAllEmployees());
   }
 
@@ -69,13 +84,38 @@ export default function Employees() {
     if (!form.name.trim()) { setMsg({ type: 'danger', text: 'Please enter a name.' }); return; }
     setSaving(true);
     const data = { name: form.name.trim().toUpperCase(), duty: form.duty, start: form.start };
-    if (form.id) {
-      await updateEmployee({ ...data, id: form.id });
-      setMsg({ type: 'success', text: 'Employee updated.' });
+
+    if (isOnline) {
+      try {
+        if (form.id) {
+          await updateServerEmployee(form.id, data);
+          setMsg({ type: 'success', text: 'Employee updated.' });
+        } else {
+          await createServerEmployee(data);
+          setMsg({ type: 'success', text: 'Employee added.' });
+        }
+        // Re-seed so local DB reflects server state (synced: true)
+        const list = await fetchEmployees();
+        await seedEmployees(list);
+      } catch (e) {
+        // Server error — fall back to local queue
+        if (form.id) {
+          await updateEmployee({ ...data, id: form.id });
+        } else {
+          await addEmployee(data);
+        }
+        setMsg({ type: 'success', text: 'Saved locally (will sync when online).' });
+      }
     } else {
-      await addEmployee(data);
-      setMsg({ type: 'success', text: 'Employee added.' });
+      // Offline — write to IndexedDB + sync queue
+      if (form.id) {
+        await updateEmployee({ ...data, id: form.id });
+      } else {
+        await addEmployee(data);
+      }
+      setMsg({ type: 'success', text: 'Saved locally (will sync when online).' });
     }
+
     setSaving(false);
     clearForm();
     load();
@@ -84,7 +124,17 @@ export default function Employees() {
 
   async function del(id) {
     if (!confirm('Delete this employee?')) return;
-    await deleteEmployee(id);
+    if (isOnline) {
+      try {
+        await deleteServerEmployee(id);
+        const list = await fetchEmployees();
+        await seedEmployees(list);
+      } catch (e) {
+        await deleteEmployee(id);
+      }
+    } else {
+      await deleteEmployee(id);
+    }
     load();
   }
 

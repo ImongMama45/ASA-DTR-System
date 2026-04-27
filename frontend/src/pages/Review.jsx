@@ -1,17 +1,24 @@
 import { useState, useEffect } from 'react';
-import { getAllBatches, updateBatch } from '../db';
+import { getAllBatches, updateBatch, seedBatches } from '../db';
 import DTRStrip from '../components/DTRStrip';
 import { exportToDocx } from '../utils/exportDocx';
+import { fetchBatches, updateServerBatch } from '../hooks/useSync';
 
-export default function Review() {
+export default function Review({ isOnline }) {
   const [batches, setBatches] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [batch, setBatch] = useState(null);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [isOnline]);
 
   async function load() {
+    if (isOnline) {
+      try {
+        const list = await fetchBatches();
+        await seedBatches(list);
+      } catch (e) { /* use local */ }
+    }
     const all = await getAllBatches();
     const sorted = all.sort((a, b) => b.createdAt - a.createdAt);
     setBatches(sorted);
@@ -37,7 +44,15 @@ export default function Review() {
 
   async function saveEdits() {
     if (!batch) return;
-    await updateBatch(batch);
+    if (isOnline) {
+      try {
+        await updateServerBatch(batch.id, { employees: batch.employees });
+      } catch (e) {
+        await updateBatch(batch);
+      }
+    } else {
+      await updateBatch(batch);
+    }
     alert('Changes saved!');
   }
 
@@ -62,7 +77,7 @@ export default function Review() {
           <select className="form-select" value={selectedId} onChange={e => selectBatch(e.target.value)}>
             <option value="">-- Select a batch --</option>
             {batches.map(b => (
-              <option key={b.id} value={b.id}>{b.label} ({(b.employees||[]).length} emp)</option>
+              <option key={b.id} value={b.id}>{b.label} ({(b.employees || []).length} emp)</option>
             ))}
           </select>
         </div>

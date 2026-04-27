@@ -76,3 +76,40 @@ export async function clearSyncItem(id) {
   const db = await initDB();
   await db.delete('syncQueue', id);
 }
+
+// ---- Seed from server (wipes local store, repopulates with server data) ----
+export async function seedEmployees(list) {
+  const db = await initDB();
+  const tx = db.transaction('employees', 'readwrite');
+  await tx.store.clear();
+  for (const emp of list) {
+    await tx.store.put({
+      id: emp.id,
+      name: emp.name,
+      duty: emp.duty,
+      start: emp.start_date || '',
+      synced: true,
+      createdAt: new Date(emp.created_at).getTime(),
+    });
+  }
+  await tx.done;
+}
+
+export async function seedBatches(list) {
+  const db = await initDB();
+  const tx = db.transaction('batches', 'readwrite');
+  await tx.store.clear();
+  for (const batch of list) {
+    await tx.store.put({
+      id: batch.id,
+      label: batch.label,
+      month: batch.month,
+      year: batch.year,
+      cutoff: batch.cutoff,
+      employees: batch.employees,
+      synced: true,
+      createdAt: new Date(batch.created_at).getTime(),
+    });
+  }
+  await tx.done;
+}

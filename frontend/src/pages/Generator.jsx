@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { getAllEmployees, saveBatch } from '../db';
+import { getAllEmployees, saveBatch, seedEmployees, seedBatches } from '../db';
 import {
   MONTH_NAMES, DAY_NAMES, getDatesInCutoff, getWeeks,
   getWeekIndex, workdaysInWeek, isWeekend, isSaturday,
   generateTime, cutoffLabel, daysInMonth
 } from '../utils/dateUtils';
+import { fetchEmployees, fetchBatches, createServerBatch } from '../hooks/useSync';
 
-export default function Generator({ onDone }) {
+export default function Generator({ onDone, isOnline }) {
   const [step, setStep] = useState(1);
   const [employees, setEmployees] = useState([]);
   const [config, setConfig] = useState({
@@ -20,7 +21,17 @@ export default function Generator({ onDone }) {
   const [empIdx, setEmpIdx] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { getAllEmployees().then(setEmployees); }, []);
+  useEffect(() => { loadEmployees(); }, [isOnline]);
+
+  async function loadEmployees() {
+    if (isOnline) {
+      try {
+        const list = await fetchEmployees();
+        await seedEmployees(list);
+      } catch (e) { /* use local */ }
+    }
+    setEmployees(await getAllEmployees());
+  }
 
   // ---- Step 1 → 2 ----
   function proceedToStep2() {
@@ -71,12 +82,10 @@ export default function Generator({ onDone }) {
         const wknd = isWeekend(date);
         const status = attendance[ei]?.[day] || (wknd ? 'weekend' : 'present');
         const wkIdx = getWeekIndex(date, weeks);
-        const wkHrs = weekHours[wkIdx] || 0; 
+        const wkHrs = weekHours[wkIdx] || 0;
         const seed = ei * 97 + day * 37 + month * 13;
         const minHoursPerDay = wkHrs;
-
-        // simple variation (0–2 extra hours)
-        const extraMins = (seed % 31) / 60;          // 0–30 min range
+        const extraMins = (seed % 31) / 60;
         const hoursForThisDay = minHoursPerDay + extraMins;
 
         let times = { arrival: '', departure: '', pmArrival: '', pmDeparture: '' };
@@ -92,7 +101,22 @@ export default function Generator({ onDone }) {
     });
 
     const label = cutoffLabel(month, year, cutoff);
-    await saveBatch({ label, month, year, cutoff, employees: empDTRs });
+    const batchPayload = { label, month, year, cutoff, employees: empDTRs };
+
+    if (isOnline) {
+      try {
+        await createServerBatch(batchPayload);
+        // Re-seed local batches from server so the new batch appears everywhere
+        const list = await fetchBatches();
+        await seedBatches(list);
+      } catch (e) {
+        // Server unreachable — save locally and queue
+        await saveBatch(batchPayload);
+      }
+    } else {
+      await saveBatch(batchPayload);
+    }
+
     setSaving(false);
     onDone();
   }
@@ -110,8 +134,8 @@ export default function Generator({ onDone }) {
   return (
     <div>
       <div className="wizard-steps">
-        {['1. Period & Employees','2. Weekly Hours','3. Attendance'].map((s, i) => (
-          <div key={i} className={`wizard-step ${step === i+1 ? 'active' : step > i+1 ? 'done' : ''}`}>{s}</div>
+        {['1. Period & Employees', '2. Weekly Hours', '3. Attendance'].map((s, i) => (
+          <div key={i} className={`wizard-step ${step === i + 1 ? 'active' : step > i + 1 ? 'done' : ''}`}>{s}</div>
         ))}
       </div>
 
@@ -122,18 +146,18 @@ export default function Generator({ onDone }) {
           <div className="form-grid-3">
             <div className="form-group">
               <label className="form-label">Month</label>
-              <select className="form-select" value={config.month} onChange={e => setConfig(c => ({...c, month: +e.target.value}))}>
-                {MONTH_NAMES.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
+              <select className="form-select" value={config.month} onChange={e => setConfig(c => ({ ...c, month: +e.target.value }))}>
+                {MONTH_NAMES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label className="form-label">Year</label>
               <input type="number" className="form-input" value={config.year} min={2020} max={2030}
-                onChange={e => setConfig(c => ({...c, year: +e.target.value}))} />
+                onChange={e => setConfig(c => ({ ...c, year: +e.target.value }))} />
             </div>
             <div className="form-group">
               <label className="form-label">Cutoff</label>
-              <select className="form-select" value={config.cutoff} onChange={e => setConfig(c => ({...c, cutoff: +e.target.value}))}>
+              <select className="form-select" value={config.cutoff} onChange={e => setConfig(c => ({ ...c, cutoff: +e.target.value }))}>
                 <option value={1}>1 – 15</option>
                 <option value={16}>16 – 31</option>
               </select>
@@ -162,17 +186,17 @@ export default function Generator({ onDone }) {
             const wStart = w[0].getDate();
             const wEnd = w[w.length - 1].getDate();
             const wd = workdaysInWeek(w);
-             
+
             return (
               <div className="week-row" key={i}>
-                <label>Week {i+1}</label>
-                <span className="week-dates">Days {wStart}–{wEnd} &nbsp;({wd} workday{wd!==1?'s':''})</span>
+                <label>Week {i + 1}</label>
+                <span className="week-dates">Days {wStart}–{wEnd} &nbsp;({wd} workday{wd !== 1 ? 's' : ''})</span>
                 <input type="number" className="form-input" value={weekHours[i]} min={0} max={60}
                   style={{ width: 72 }}
-                  onChange={e => setWeekHours(h => { const n=[...h]; n[i]=+e.target.value; return n; })} />
+                  onChange={e => setWeekHours(h => { const n = [...h]; n[i] = +e.target.value; return n; })} />
                 <span style={{ fontSize: 12, color: '#555' }}>hrs/week</span>
                 <span style={{ fontSize: 11, color: '#888' }}>
-                  ({wd > 0 ? (weekHours[i]/wd).toFixed(1) : 0} hrs/day avg)
+                  ({wd > 0 ? (weekHours[i] / wd).toFixed(1) : 0} hrs/day avg)
                 </span>
               </div>
             );
@@ -188,23 +212,23 @@ export default function Generator({ onDone }) {
       {step === 3 && emp && (
         <div className="card">
           <div className="card-title">Step 3: Attendance Input</div>
-          <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:2 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
             <span><strong>{emp.name}</strong></span>
-            <span>{empIdx+1} / {employees.length}</span>
+            <span>{empIdx + 1} / {employees.length}</span>
           </div>
           <div className="progress-bar">
-            <div className="progress-fill" style={{ width: `${((empIdx)/employees.length)*100}%` }} />
+            <div className="progress-fill" style={{ width: `${((empIdx) / employees.length) * 100}%` }} />
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:10, margin:'10px 0' }}>
-            <div className="emp-avatar" style={{ width:32, height:32, fontSize:11 }}>
-              {emp.name.split(' ').map(w=>w[0]).join('').slice(0,2)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0' }}>
+            <div className="emp-avatar" style={{ width: 32, height: 32, fontSize: 11 }}>
+              {emp.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
             </div>
             <div>
               <strong>{emp.name}</strong>
-              <span className={`badge badge-${emp.duty.toLowerCase()}`} style={{ marginLeft:8 }}>{emp.duty} Duty</span>
+              <span className={`badge badge-${emp.duty.toLowerCase()}`} style={{ marginLeft: 8 }}>{emp.duty} Duty</span>
             </div>
           </div>
-          <div className="alert alert-info" style={{ fontSize:11 }}>
+          <div className="alert alert-info" style={{ fontSize: 11 }}>
             Click a day to toggle <strong>Present ↔ Absent</strong>. Weekends are auto-set.
           </div>
           <div className="day-grid">
@@ -218,9 +242,9 @@ export default function Generator({ onDone }) {
                   onClick={() => status !== 'weekend' && toggleDay(empIdx, day)}
                 >
                   {day}
-                  <div style={{ fontSize:9 }}>{DAY_NAMES[d.getDay()]}</div>
+                  <div style={{ fontSize: 9 }}>{DAY_NAMES[d.getDay()]}</div>
                   {status !== 'weekend' && (
-                    <div style={{ fontSize:8 }}>{status === 'present' ? '✓' : '✗'}</div>
+                    <div style={{ fontSize: 8 }}>{status === 'present' ? '✓' : '✗'}</div>
                   )}
                 </div>
               );
