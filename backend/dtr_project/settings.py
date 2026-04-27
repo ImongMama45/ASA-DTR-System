@@ -4,7 +4,8 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dtr-admin-secret-key-change-in-production-xyz789')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+print(SECRET_KEY)
 DEBUG = False
 
 ALLOWED_HOSTS = ["*"]
