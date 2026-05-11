@@ -66,17 +66,48 @@ export async function updateServerBatch(id, batch) {
 }
 
 // ── Sync hook ─────────────────────────────────────────────────────────────────
+// Ping the Render server to check true reachability (not just navigator.onLine)
+async function checkServerReachable() {
+  try {
+    const res = await fetch(`${API_BASE}/employees/`, { method: 'HEAD', cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function useSync() {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isOnline, setIsOnline] = useState(false); // start false until first ping confirms server is up
   const [isSyncing, setIsSyncing] = useState(false);
   const syncTimerRef = useRef(null);
+  const pingTimerRef = useRef(null);
+
+  // Ping the server and update isOnline state
+  const pingServer = useRef(async () => {
+    const reachable = await checkServerReachable();
+    setIsOnline(reachable);
+    return reachable;
+  });
 
   useEffect(() => {
-    const onOnline = () => { setIsOnline(true); triggerSync(); };
+    // Initial ping
+    pingServer.current();
+
+    // Poll every 30 seconds
+    pingTimerRef.current = setInterval(() => pingServer.current(), 30_000);
+
+    // Also re-ping whenever the browser goes online/offline
+    const onOnline = async () => {
+      const reachable = await pingServer.current();
+      if (reachable) triggerSync();
+    };
     const onOffline = () => setIsOnline(false);
+
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+
     return () => {
+      clearInterval(pingTimerRef.current);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
@@ -105,7 +136,6 @@ export function useSync() {
         }
       }
       // After draining the queue, re-seed local DB from server
-      // so all records flip from synced:false → synced:true
       if (navigator.onLine) {
         try {
           const [emps, bats] = await Promise.all([fetchEmployees(), fetchBatches()]);

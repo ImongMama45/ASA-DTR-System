@@ -57,13 +57,79 @@ function SearchableDropdown({ employees, onSelect }) {
   );
 }
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Parse a CSV string into an array of employee-shaped objects.
+ * Expected columns (case-insensitive, any order): name, duty, start
+ */
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) throw new Error('CSV has no data rows.');
+
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const nameIdx = headers.indexOf('name');
+  const dutyIdx = headers.indexOf('duty');
+  const startIdx = headers.indexOf('start');
+
+  if (nameIdx === -1) throw new Error('CSV is missing a "name" column.');
+
+  return lines.slice(1).map((line, i) => {
+    const cols = line.split(',').map(c => c.trim());
+    const name = cols[nameIdx]?.toUpperCase();
+    if (!name) throw new Error(`Row ${i + 2}: name is empty.`);
+
+    const duty = dutyIdx !== -1 ? cols[dutyIdx]?.toUpperCase() : 'AM';
+    if (!['AM', 'PM'].includes(duty)) throw new Error(`Row ${i + 2}: duty must be AM or PM, got "${duty}".`);
+
+    return {
+      name,
+      duty,
+      start: startIdx !== -1 ? (cols[startIdx] || '') : '',
+    };
+  });
+}
+
+/**
+ * Parse a JSON string — accepts either an array or { employees: [...] }.
+ */
+function parseJSON(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON file.'); }
+
+  const list = Array.isArray(parsed) ? parsed : parsed.employees;
+  if (!Array.isArray(list)) throw new Error('JSON must be an array or { employees: [...] }.');
+
+  return list.map((row, i) => {
+    const name = (row.name || '').toString().toUpperCase().trim();
+    if (!name) throw new Error(`Item ${i + 1}: name is empty.`);
+
+    const duty = (row.duty || 'AM').toString().toUpperCase().trim();
+    if (!['AM', 'PM'].includes(duty)) throw new Error(`Item ${i + 1}: duty must be AM or PM.`);
+
+    return { name, duty, start: row.start || '' };
+  });
+}
+
+function downloadFile(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── main component ────────────────────────────────────────────────────────────
+
 export default function Employees({ isOnline }) {
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', start: '' });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [importStatus, setImportStatus] = useState(null); // { ok, skipped, errors[] }
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef();
 
-  // Reload whenever online status changes so new devices get server data immediately
   useEffect(() => { load(); }, [isOnline]);
 
   async function load() {
@@ -71,9 +137,7 @@ export default function Employees({ isOnline }) {
       try {
         const list = await fetchEmployees();
         await seedEmployees(list);
-      } catch (e) {
-        // Server unreachable — fall through to local
-      }
+      } catch { /* fall through */ }
     }
     setEmployees(await getAllEmployees());
   }
@@ -87,32 +151,18 @@ export default function Employees({ isOnline }) {
 
     if (isOnline) {
       try {
-        if (form.id) {
-          await updateServerEmployee(form.id, data);
-          setMsg({ type: 'success', text: 'Employee updated.' });
-        } else {
-          await createServerEmployee(data);
-          setMsg({ type: 'success', text: 'Employee added.' });
-        }
-        // Re-seed so local DB reflects server state (synced: true)
+        if (form.id) { await updateServerEmployee(form.id, data); setMsg({ type: 'success', text: 'Employee updated.' }); }
+        else { await createServerEmployee(data); setMsg({ type: 'success', text: 'Employee added.' }); }
         const list = await fetchEmployees();
         await seedEmployees(list);
-      } catch (e) {
-        // Server error — fall back to local queue
-        if (form.id) {
-          await updateEmployee({ ...data, id: form.id });
-        } else {
-          await addEmployee(data);
-        }
+      } catch {
+        if (form.id) await updateEmployee({ ...data, id: form.id });
+        else await addEmployee(data);
         setMsg({ type: 'success', text: 'Saved locally (will sync when online).' });
       }
     } else {
-      // Offline — write to IndexedDB + sync queue
-      if (form.id) {
-        await updateEmployee({ ...data, id: form.id });
-      } else {
-        await addEmployee(data);
-      }
+      if (form.id) await updateEmployee({ ...data, id: form.id });
+      else await addEmployee(data);
       setMsg({ type: 'success', text: 'Saved locally (will sync when online).' });
     }
 
@@ -125,13 +175,8 @@ export default function Employees({ isOnline }) {
   async function del(id) {
     if (!confirm('Delete this employee?')) return;
     if (isOnline) {
-      try {
-        await deleteServerEmployee(id);
-        const list = await fetchEmployees();
-        await seedEmployees(list);
-      } catch (e) {
-        await deleteEmployee(id);
-      }
+      try { await deleteServerEmployee(id); const list = await fetchEmployees(); await seedEmployees(list); }
+      catch { await deleteEmployee(id); }
     } else {
       await deleteEmployee(id);
     }
@@ -144,11 +189,80 @@ export default function Employees({ isOnline }) {
   }
 
   function clearForm() { setForm({ id: null, name: '', duty: 'AM', start: '' }); }
-
   function initials(name) { return name.split(' ').map(w => w[0]).join('').slice(0, 2); }
+
+  // ── import ──────────────────────────────────────────────────────────────────
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+
+    setImporting(true);
+    setImportStatus(null);
+
+    let rows;
+    try {
+      const text = await file.text();
+      const ext = file.name.split('.').pop().toLowerCase();
+      rows = ext === 'json' ? parseJSON(text) : parseCSV(text);
+    } catch (err) {
+      setImportStatus({ ok: 0, skipped: 0, errors: [err.message] });
+      setImporting(false);
+      return;
+    }
+
+    let ok = 0, skipped = 0;
+    const errors = [];
+    const existing = await getAllEmployees();
+    const existingNames = new Set(existing.map(e => e.name));
+
+    for (const row of rows) {
+      if (existingNames.has(row.name)) { skipped++; continue; }
+
+      try {
+        if (isOnline) {
+          try { await createServerEmployee(row); }
+          catch { await addEmployee(row); }
+        } else {
+          await addEmployee(row);
+        }
+        existingNames.add(row.name);
+        ok++;
+      } catch (err) {
+        errors.push(`${row.name}: ${err.message}`);
+      }
+    }
+
+    // Re-seed from server if online so everything is in sync
+    if (isOnline) {
+      try { const list = await fetchEmployees(); await seedEmployees(list); } catch { /* ok */ }
+    }
+
+    setImportStatus({ ok, skipped, errors });
+    setImporting(false);
+    load();
+  }
+
+  // ── export ──────────────────────────────────────────────────────────────────
+
+  function exportCSV() {
+    const header = 'name,duty,start';
+    const rows = employees.map(e => `${e.name},${e.duty},${e.start || ''}`);
+    downloadFile([header, ...rows].join('\n'), 'employees.csv', 'text/csv');
+  }
+
+  function exportJSON() {
+    const data = employees.map(({ name, duty, start }) => ({ name, duty, start: start || '' }));
+    downloadFile(JSON.stringify(data, null, 2), 'employees.json', 'application/json');
+  }
+
+  // ── render ───────────────────────────────────────────────────────────────────
 
   return (
     <div>
+      {/* ── Add / Edit form ── */}
       <div className="card">
         <div className="card-title">{form.id ? '✏ Edit Employee' : '➕ Add Employee'}</div>
         {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
@@ -182,8 +296,92 @@ export default function Employees({ isOnline }) {
         </div>
       </div>
 
+      {/* ── Import card ── */}
       <div className="card">
-        <div className="card-title">👥 Employee List ({employees.length})</div>
+        <div className="card-title">📂 Import Employees</div>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
+          Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees.
+          Duplicate names are skipped automatically.
+        </p>
+
+        {/* Template hint */}
+        <details style={{ marginBottom: 12, fontSize: '0.8rem', color: 'var(--text-muted, #666)' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>View expected format</summary>
+          <div style={{ marginTop: 8, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <div>
+              <strong>CSV</strong>
+              <pre style={{ margin: '4px 0 0', background: 'var(--bg-muted, #f4f4f4)', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem' }}>
+                {`name,duty,start
+JUAN DELA CRUZ,AM,2023-01-15
+MARIA SANTOS,PM,2022-06-01`}
+              </pre>
+            </div>
+            <div>
+              <strong>JSON</strong>
+              <pre style={{ margin: '4px 0 0', background: 'var(--bg-muted, #f4f4f4)', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem' }}>
+                {`[
+  { "name": "JUAN DELA CRUZ", "duty": "AM", "start": "2023-01-15" },
+  { "name": "MARIA SANTOS",   "duty": "PM", "start": "2022-06-01" }
+]`}
+              </pre>
+            </div>
+          </div>
+        </details>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.json"
+          style={{ display: 'none' }}
+          onChange={handleFileUpload}
+        />
+        <button
+          className="btn btn-primary"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+        >
+          {importing ? '⏳ Importing…' : '📁 Choose File (.csv / .json)'}
+        </button>
+
+        {/* Import result summary */}
+        {importStatus && (
+          <div style={{ marginTop: 14 }}>
+            {importStatus.ok > 0 && (
+              <div className="alert alert-success">
+                ✅ {importStatus.ok} employee{importStatus.ok !== 1 ? 's' : ''} imported successfully.
+              </div>
+            )}
+            {importStatus.skipped > 0 && (
+              <div className="alert alert-warning">
+                ⏭ {importStatus.skipped} duplicate{importStatus.skipped !== 1 ? 's' : ''} skipped (already exist).
+              </div>
+            )}
+            {importStatus.errors.length > 0 && (
+              <div className="alert alert-danger">
+                <strong>⚠ {importStatus.errors.length} error{importStatus.errors.length !== 1 ? 's' : ''}:</strong>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {importStatus.errors.map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
+            )}
+            {importStatus.ok === 0 && importStatus.skipped === 0 && importStatus.errors.length === 0 && (
+              <div className="alert alert-warning">⚠ File was empty or had no valid rows.</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Employee list ── */}
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          <div className="card-title" style={{ margin: 0 }}>👥 Employee List ({employees.length})</div>
+          {employees.length > 0 && (
+            <div className="btn-row" style={{ margin: 0 }}>
+              <button className="btn btn-sm btn-outline" onClick={exportCSV} title="Download as CSV">⬇ CSV</button>
+              <button className="btn btn-sm btn-outline" onClick={exportJSON} title="Download as JSON">⬇ JSON</button>
+            </div>
+          )}
+        </div>
 
         {employees.length === 0 ? (
           <div className="empty-state">

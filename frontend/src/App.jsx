@@ -21,7 +21,7 @@ export default function App() {
         <div className="header-status">
           {isSyncing && <span className="status-badge syncing">↻ Syncing…</span>}
           <span className={`status-badge ${isOnline ? 'online' : 'offline'}`}>
-            {isOnline ? '● Online' : '○ Offline'}
+            {isOnline ? '● Server Online' : '○ Server Offline'}
           </span>
         </div>
       </header>

@@ -1,9 +1,9 @@
 export const MONTH_NAMES = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December'
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export const DAY_NAMES = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+export const DAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 export function daysInMonth(year, month) {
   return new Date(year, month, 0).getDate();
@@ -25,7 +25,7 @@ export function isWeekend(date) {
 }
 
 export function isSaturday(date) { return date.getDay() === 6; }
-export function isSunday(date)   { return date.getDay() === 0; }
+export function isSunday(date) { return date.getDay() === 0; }
 
 export function getWeeks(dates) {
   const weeks = [];
@@ -82,22 +82,26 @@ function randMinExcluding(seed, baseOffset, min, max, excludeMin) {
  */
 function resolveOut(computedTotalMin, floorTotalMin, capTotalMin, arrM, seed, offsetBase) {
   const clamped = Math.max(computedTotalMin, floorTotalMin);
-  const final   = Math.min(clamped, capTotalMin);
+  const final = Math.min(clamped, capTotalMin);
 
-  const outH    = Math.floor(final / 60);
+  const outH = Math.floor(final / 60);
   const rawOutM = final % 60;
 
-  // If we landed exactly on the floor boundary minute, randomize within the
-  // same hour so the minute varies naturally and differs from arrM.
+  // ✅ When we're on the cap hour, the minute must never exceed the cap minute
+  const capH = Math.floor(capTotalMin / 60);
+  const capM = capTotalMin % 60;
+  const maxAllowedM = outH === capH ? capM : 59;
+
   let outM;
   if (final === floorTotalMin) {
-    // Randomize minute in [floorM, 59] but exclude arrM
     const floorM = floorTotalMin % 60;
-    outM = randMinExcluding(seed, offsetBase, floorM, 59, arrM);
+    // Clamp floorM to maxAllowedM too, in case floor === cap
+    const safeFloorM = Math.min(floorM, maxAllowedM);
+    outM = randMinExcluding(seed, offsetBase, safeFloorM, maxAllowedM, arrM);
   } else {
     outM = rawOutM !== arrM
       ? rawOutM
-      : randMinExcluding(seed, offsetBase, 0, 59, arrM);
+      : randMinExcluding(seed, offsetBase, 0, maxAllowedM, arrM); // ✅ bounded by cap
   }
 
   return { outH, outM };
@@ -131,7 +135,7 @@ export function generateTime(duty, hoursPerDay, seed) {
   const requiredMins = Math.round(hoursPerDay * 60);
 
   // Extra time: 0–30 min max, ~35% of days
-  const hasOvertime  = seededRand(seed, 7) > 0.65;
+  const hasOvertime = seededRand(seed, 7) > 0.65;
   const overtimeMins = hasOvertime ? randInt(seed, 13, 0, 30) : 0;  // ← was 0–15
 
   if (duty === 'AM') {
@@ -139,15 +143,15 @@ export function generateTime(duty, hoursPerDay, seed) {
 
     // ✅ Work backwards: earliest In = 12:30 - requiredMins
     // This guarantees Out is never before 12:30
-    const floorOutMin  = 12 * 60 + 30;   // 12:30 PM = 750 min
-    const capOutMin    = 13 * 60 + 30;   // 1:30 PM  = 810 min
+    const floorOutMin = 12 * 60 + 30;   // 12:30 PM = 750 min
+    const capOutMin = 13 * 60 + 30;   // 1:30 PM  = 810 min
 
-    const latestArrMin  = 7 * 60 + 59;   // 7:59 AM latest In
+    const latestArrMin = 7 * 60 + 59;   // 7:59 AM latest In
     const earliestArrMin = floorOutMin - requiredMins; // e.g. 3hrs → 9:30 earliest
 
     // Clamp: if required hours > 5.5hrs, earliest would go before 7:00 — floor at 7:00
     const arrFloor = Math.max(7 * 60, earliestArrMin);
-    const arrCap   = Math.min(latestArrMin, floorOutMin - requiredMins + (30 * 60 / 60));
+    const arrCap = Math.min(latestArrMin, floorOutMin - requiredMins + (30 * 60 / 60));
     // Ensure floor ≤ cap (safety)
     const safeArrCap = Math.max(arrFloor, Math.min(latestArrMin, floorOutMin - requiredMins));
 
@@ -156,7 +160,7 @@ export function generateTime(duty, hoursPerDay, seed) {
     const arrM = arrTotalMin % 60;
 
     // Extra time: 0–30 min, ~35% of days
-    const hasOvertime  = seededRand(seed, 7) > 0.65;
+    const hasOvertime = seededRand(seed, 7) > 0.65;
     const overtimeMins = hasOvertime ? randInt(seed, 13, 0, 30) : 0;
 
     const computed = arrTotalMin + requiredMins + overtimeMins;
@@ -168,31 +172,48 @@ export function generateTime(duty, hoursPerDay, seed) {
     );
 
     return {
-      arrival:     `${arrH}:${fmt2(arrM)}`,
-      departure:   `${depH}:${fmt2(depM)}`,
-      pmArrival:   '',
+      arrival: `${arrH}:${fmt2(arrM)}`,
+      departure: `${depH}:${fmt2(depM)}`,
+      pmArrival: '',
       pmDeparture: '',
     };
   } else {
-    // PM: In 12:30–1:00, Out min 5:00 PM, max 7:00 PM
-    const arrTotalMin = randInt(seed, 2, 12 * 60 + 30, 13 * 60 + 13);
+    // PM: arrival 12:30–1:00 PM
+    const pmArrFloor = 12 * 60 + 30;  // 750 min
+    const pmArrCap = 13 * 60;        // 780 min = 1:00 PM  ✅ fixed: was 12.8*60+13 = 781 (1:01 PM)
+
+    const arrTotalMin = randInt(seed, 2, pmArrFloor, pmArrCap);
     const arrH = Math.floor(arrTotalMin / 60);
     const arrM = arrTotalMin % 60;
 
-    const computed = arrTotalMin + requiredMins + overtimeMins;
+    const capMin = 18 * 60 + 10;  // 1090 min = 6:10 PM, hard ceiling
 
-    // Floor = max(computed, 5:00 PM) so required hours are always met
-    const floorMin = Math.max(arrTotalMin + requiredMins, 17 * 60);
-    const capMin   = 18 * 60;   // 7:00 PM cap
+    // Desired departure before any constraints
+    const naturalDep = arrTotalMin + requiredMins + overtimeMins;
+
+    // Floor: whichever is later — 5:00 PM or when required hours finish
+    const rawFloor = Math.max(arrTotalMin + requiredMins, 17 * 60);
+
+    // ✅ Fix: if required hours alone exceed 6:10, collapse floor down to cap
+    //    so resolveOut always receives a valid range (floor ≤ cap)
+    const safeFloor = Math.min(rawFloor, capMin);
+
+    // ✅ Fix: clamp the computed target inside [safeFloor, capMin] before resolveOut
+    const safeComputed = Math.min(Math.max(naturalDep, safeFloor), capMin);
 
     const { outH: depH, outM: depM } = resolveOut(
-      computed, floorMin, capMin, arrM, seed, 23
+      safeComputed,
+      safeFloor,   // guaranteed ≤ capMin now
+      capMin,
+      arrM,
+      seed,
+      23
     );
 
     return {
-      arrival:     '',
-      departure:   '',
-      pmArrival:   `${arrH}:${fmt2(arrM)}`,
+      arrival: '',
+      departure: '',
+      pmArrival: `${arrH}:${fmt2(arrM)}`,
       pmDeparture: `${depH}:${fmt2(depM)}`,
     };
   }
