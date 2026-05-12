@@ -86,7 +86,6 @@ export default function Dashboard({ isOnline, setPage }) {
           </div>
         ))}
       </div>
-      <script async src="http://127.0.0.1:8000/tracker.js" data-site-id="AP-1AEA2454EA21"></script>
 
       {serverStats && (
         <div className="card">
