@@ -9,7 +9,7 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY',
 
 DEBUG = False
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ["*", "ASABackendPo.pythonanywhere.com", "asabackendpo.pythonanywhere.com"]
 
 
 INSTALLED_APPS = [
@@ -92,4 +92,4 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 100,
 }
 
-CSRF_TRUSTED_ORIGINS = ["https://asa-dtr-system.onrender.com"]
+CSRF_TRUSTED_ORIGINS = ["https://asa-dtr-system.onrender.com", "https://ASABackendPo.pythonanywhere.com", "https://asabackendpo.pythonanywhere.com"]
