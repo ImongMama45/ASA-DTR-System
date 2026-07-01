@@ -24,6 +24,8 @@ export default function Generator({ onDone, isOnline }) {
   const [attendance, setAttendance] = useState({});
   const [empIdx, setEmpIdx] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [globalHolidays, setGlobalHolidays] = useState(new Set());
+  const [showHolidayModal, setShowHolidayModal] = useState(false);
 
   useEffect(() => { loadEmployees(); }, [isOnline]);
 
@@ -78,7 +80,14 @@ export default function Generator({ onDone, isOnline }) {
     employees.forEach((e, ei) => {
       att[ei] = {};
       dates.forEach(d => {
-        att[ei][d.getDate()] = isWeekend(d) ? 'weekend' : 'present';
+        const day = d.getDate();
+        if (isWeekend(d)) {
+          att[ei][day] = 'weekend';
+        } else if (globalHolidays.has(day)) {
+          att[ei][day] = 'holiday';
+        } else {
+          att[ei][day] = 'present';
+        }
       });
     });
     setAttendance(att);
@@ -124,6 +133,8 @@ export default function Generator({ onDone, isOnline }) {
         if (wknd) {
           const label = isSaturday(date) ? 'SAT' : 'SUN';
           times = { arrival: label, departure: label, pmArrival: '', pmDeparture: '' };
+        } else if (status === 'holiday') {
+          times = { arrival: '', departure: '', pmArrival: '', pmDeparture: '' };
         } else if (status === 'present' && wkHrs > 0) {
           times = generateTime(emp.duty, hoursForThisDay, seed);
         }
@@ -322,27 +333,32 @@ export default function Generator({ onDone, isOnline }) {
             <div className="form-group">
               <label className="form-label">Month</label>
               <select className="form-select" value={config.month}
-                onChange={e => setConfig(c => ({ ...c, month: +e.target.value }))}>
+                onChange={e => { setConfig(c => ({ ...c, month: +e.target.value })); setGlobalHolidays(new Set()); }}>
                 {MONTH_NAMES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label className="form-label">Year</label>
               <input type="number" className="form-input" value={config.year} min={2020} max={2030}
-                onChange={e => setConfig(c => ({ ...c, year: +e.target.value }))} />
+                onChange={e => { setConfig(c => ({ ...c, year: +e.target.value })); setGlobalHolidays(new Set()); }} />
             </div>
             <div className="form-group">
               <label className="form-label">Cutoff</label>
               <select className="form-select" value={config.cutoff}
-                onChange={e => setConfig(c => ({ ...c, cutoff: +e.target.value }))}>
+                onChange={e => { setConfig(c => ({ ...c, cutoff: +e.target.value })); setGlobalHolidays(new Set()); }}>
                 <option value={1}>1 – 15</option>
                 <option value={16}>16 – 31</option>
               </select>
             </div>
           </div>
-          <div className="alert alert-info">
-            Period: <strong>{cutoffLabel(config.month, config.year, config.cutoff)}</strong>
-            &nbsp;·&nbsp; {employees.length} employee(s) selected
+          <div className="alert alert-info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              Period: <strong>{cutoffLabel(config.month, config.year, config.cutoff)}</strong>
+              &nbsp;·&nbsp; {employees.length} employee(s) selected
+            </div>
+            <button className="btn btn-sm btn-outline" style={{ background: '#fff' }} onClick={() => setShowHolidayModal(true)}>
+              🗓 Set Holidays
+            </button>
           </div>
           <div className="btn-row">
             <button className="btn btn-secondary" onClick={() => setStep(1)}>← Back</button>
@@ -410,16 +426,19 @@ export default function Generator({ onDone, isOnline }) {
             {dates.map(d => {
               const day = d.getDate();
               const status = attendance[empIdx]?.[day] || 'present';
+              const displayStatus = status === 'holiday' ? 'absent' : status;
               return (
                 <div
                   key={day}
-                  className={`day-btn ${status}`}
-                  onClick={() => status !== 'weekend' && toggleDay(empIdx, day)}
+                  className={`day-btn ${displayStatus}`}
+                  onClick={() => status !== 'weekend' && status !== 'holiday' && toggleDay(empIdx, day)}
                 >
                   {day}
                   <div style={{ fontSize: 9 }}>{DAY_NAMES[d.getDay()]}</div>
                   {status !== 'weekend' && (
-                    <div style={{ fontSize: 8 }}>{status === 'present' ? '✓' : '✗'}</div>
+                    <div style={{ fontSize: 8 }}>
+                      {status === 'holiday' ? 'HOL' : (status === 'present' ? '✓' : '✗')}
+                    </div>
                   )}
                 </div>
               );
@@ -438,6 +457,46 @@ export default function Generator({ onDone, isOnline }) {
                 {saving ? '⏳ Generating…' : '✓ Finish & Generate DTRs'}
               </button>
             )}
+          </div>
+        </div>
+      )}
+      {/* ── Holiday Modal ── */}
+      {showHolidayModal && (
+        <div className="modal-overlay">
+          <div className="modal-content card" style={{ maxWidth: 700, margin: '0 auto' }}>
+            <h3 style={{ marginTop: 0 }}>🗓 Set Global Holidays</h3>
+            <div className="alert alert-info" style={{ fontSize: 11 }}>
+              Click a day to mark it as a Holiday/Non-working day. This applies to all employees.
+            </div>
+            <div className="day-grid">
+              {getDatesInCutoff(config.year, config.month, config.cutoff).map(d => {
+                const day = d.getDate();
+                const isWknd = isWeekend(d);
+                const isHol = globalHolidays.has(day);
+                const status = isWknd ? 'weekend' : (isHol ? 'absent' : 'present');
+                return (
+                  <div
+                    key={day}
+                    className={`day-btn ${status}`}
+                    onClick={() => {
+                      if (isWknd) return;
+                      setGlobalHolidays(prev => {
+                        const next = new Set(prev);
+                        next.has(day) ? next.delete(day) : next.add(day);
+                        return next;
+                      });
+                    }}
+                  >
+                    {day}
+                    <div style={{ fontSize: 9 }}>{DAY_NAMES[d.getDay()]}</div>
+                    {!isWknd && <div style={{ fontSize: 8 }}>{isHol ? 'HOL' : '✓'}</div>}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="btn-row" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary" onClick={() => setShowHolidayModal(false)}>Done</button>
+            </div>
           </div>
         </div>
       )}

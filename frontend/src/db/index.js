@@ -87,7 +87,10 @@ export async function seedEmployees(list) {
       id: emp.id,
       name: emp.name,
       duty: emp.duty,
+      office: emp.office || '',
       start: emp.start_date || '',
+      end_date: emp.end_date || '',
+      is_active: emp.is_active !== false,
       synced: true,
       createdAt: new Date(emp.created_at).getTime(),
     });

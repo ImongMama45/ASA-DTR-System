@@ -3,6 +3,7 @@ import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
 import Generator from './pages/Generator';
 import Review from './pages/Review';
+import FundTracker from './pages/FundTracker';
 import { useSync } from './hooks/useSync';
 import './App.css';
 
@@ -32,6 +33,7 @@ export default function App() {
           { id: 'employees', label: '👤 Employees' },
           { id: 'generator', label: '⚙ Generate DTR' },
           { id: 'review', label: '🖨 Review & Export' },
+          { id: 'funds', label: '💰 Fund Tracker' },
         ].map(n => (
           <button
             key={n.id}
@@ -48,6 +50,7 @@ export default function App() {
         {page === 'employees' && <Employees isOnline={isOnline} />}
         {page === 'generator' && <Generator isOnline={isOnline} onDone={() => setPage('review')} />}
         {page === 'review' && <Review isOnline={isOnline} />}
+        {page === 'funds' && <FundTracker isOnline={isOnline} />}
       </main>
     </div>
   );

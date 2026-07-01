@@ -1,12 +1,18 @@
 from rest_framework import serializers
 
-from .models import Employee, DTRBatch
+from .models import Employee, DTRBatch, FundPayment
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Employee
-        fields = ['id', 'name', 'duty', 'start_date', 'local_id', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'duty', 'office', 'start_date', 'end_date', 'is_active', 'local_id', 'created_at', 'updated_at']
+
+
+class FundPaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FundPayment
+        fields = ['id', 'employee', 'year', 'month', 'cutoff', 'amount', 'modified_at']
 
 
 class DTRBatchRowSerializer(serializers.Serializer):

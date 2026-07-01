@@ -32,7 +32,7 @@ export async function createServerEmployee(emp) {
   return apiFetch('/employees/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: emp.name, duty: emp.duty, start_date: emp.start || null }),
+    body: JSON.stringify({ name: emp.name, duty: emp.duty, office: emp.office || null, start_date: emp.start || null }),
   });
 }
 
@@ -40,7 +40,7 @@ export async function updateServerEmployee(id, emp) {
   return apiFetch(`/employees/${id}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: emp.name, duty: emp.duty, start_date: emp.start || null }),
+    body: JSON.stringify({ name: emp.name, duty: emp.duty, office: emp.office || null, start_date: emp.start || null }),
   });
 }
 

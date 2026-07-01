@@ -123,11 +123,12 @@ function downloadFile(content, filename, mime) {
 
 export default function Employees({ isOnline }) {
   const [employees, setEmployees] = useState([]);
-  const [form, setForm] = useState({ id: null, name: '', duty: 'AM', start: '' });
+  const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [importStatus, setImportStatus] = useState(null); // { ok, skipped, errors[] }
   const [importing, setImporting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const fileInputRef = useRef();
 
   useEffect(() => { load(); }, [isOnline]);
@@ -147,7 +148,7 @@ export default function Employees({ isOnline }) {
   async function save() {
     if (!form.name.trim()) { setMsg({ type: 'danger', text: 'Please enter a name.' }); return; }
     setSaving(true);
-    const data = { name: form.name.trim().toUpperCase(), duty: form.duty, start: form.start };
+    const data = { name: form.name.trim().toUpperCase(), duty: form.duty, office: form.office, start: form.start };
 
     if (isOnline) {
       try {
@@ -172,23 +173,29 @@ export default function Employees({ isOnline }) {
     setTimeout(() => setMsg(null), 3000);
   }
 
-  async function del(id) {
-    if (!confirm('Delete this employee?')) return;
+  function confirmDelete(emp) {
+    setDeleteTarget(emp);
+  }
+
+  async function executeDelete() {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
     if (isOnline) {
       try { await deleteServerEmployee(id); const list = await fetchEmployees(); await seedEmployees(list); }
       catch { await deleteEmployee(id); }
     } else {
       await deleteEmployee(id);
     }
+    setDeleteTarget(null);
     load();
   }
 
   function edit(emp) {
-    setForm({ id: emp.id, name: emp.name, duty: emp.duty, start: emp.start || '' });
+    setForm({ id: emp.id, name: emp.name, duty: emp.duty, office: emp.office || '', start: emp.start || '' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function clearForm() { setForm({ id: null, name: '', duty: 'AM', start: '' }); }
+  function clearForm() { setForm({ id: null, name: '', duty: 'AM', office: '', start: '' }); }
   function initials(name) { return name.split(' ').map(w => w[0]).join('').slice(0, 2); }
 
   // ── import ──────────────────────────────────────────────────────────────────
@@ -248,13 +255,13 @@ export default function Employees({ isOnline }) {
   // ── export ──────────────────────────────────────────────────────────────────
 
   function exportCSV() {
-    const header = 'name,duty,start';
-    const rows = employees.map(e => `${e.name},${e.duty},${e.start || ''}`);
+    const header = 'name,duty,office,start';
+    const rows = employees.map(e => `${e.name},${e.duty},${e.office || ''},${e.start || ''}`);
     downloadFile([header, ...rows].join('\n'), 'employees.csv', 'text/csv');
   }
 
   function exportJSON() {
-    const data = employees.map(({ name, duty, start }) => ({ name, duty, start: start || '' }));
+    const data = employees.map(({ name, duty, office, start }) => ({ name, duty, office: office || '', start: start || '' }));
     downloadFile(JSON.stringify(data, null, 2), 'employees.json', 'application/json');
   }
 
@@ -281,6 +288,30 @@ export default function Employees({ isOnline }) {
             <select className="form-select" value={form.duty} onChange={e => setField('duty', e.target.value)}>
               <option value="AM">AM (Morning Duty)</option>
               <option value="PM">PM (Afternoon Duty)</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Office (Optional)</label>
+            <select className="form-select" value={form.office} onChange={e => setField('office', e.target.value)}>
+              <option value="">-- None --</option>
+              <option value="Finance Office">Finance Office</option>
+              <option value="Registrar Office">Registrar Office</option>
+              <option value="Maintenance Office">Maintenance Office</option>
+              <option value="Clinic">Clinic</option>
+              <option value="Admission/Guidance Office">Admission/Guidance Office</option>
+              <option value="HR Office">HR Office</option>
+              <option value="BSSW Program Head Office">BSSW Program Head Office</option>
+              <option value="ICES Office">ICES Office</option>
+              <option value="BSE Program Head Office">BSE Program Head Office</option>
+              <option value="BSPA Program Head Office">BSPA Program Head Office</option>
+              <option value="BTVTED/ABELS Program Head Office">BTVTED/ABELS Program Head Office</option>
+              <option value="BSA/BSAIS Program Head Office">BSA/BSAIS Program Head Office</option>
+              <option value="GAD Office">GAD Office</option>
+              <option value="Library">Library</option>
+              <option value="Admin Office">Admin Office</option>
+              <option value="PE Department Office">PE Department Office</option>
+              <option value="BSIT Program Head Office">BSIT Program Head Office</option>
+              <option value="Alumni Office">Alumni Office</option>
             </select>
           </div>
           <div className="form-group">
@@ -397,19 +428,36 @@ MARIA SANTOS,PM,2022-06-01`}
                   <div className="emp-name">{emp.name}</div>
                   <div className="emp-meta">
                     <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
+                    {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}
                     {emp.start && <span style={{ marginLeft: 8 }}>Since {emp.start}</span>}
                     {!emp.synced && <span className="badge badge-gray" style={{ marginLeft: 6 }}>Unsynced</span>}
                   </div>
                 </div>
                 <div className="emp-actions">
                   <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => del(emp.id)}>Delete</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => confirmDelete(emp)}>Delete</button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+      {/* ── Delete Modal ── */}
+      {deleteTarget && (
+        <div className="modal-overlay">
+          <div className="modal-content card" style={{ margin: 0 }}>
+            <h3 style={{ marginTop: 0, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ⚠️ Confirm Deletion
+            </h3>
+            <p style={{ margin: '16px 0' }}>Are you sure you want to delete <strong>{deleteTarget.name}</strong>?</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>This action cannot be undone.</p>
+            <div className="btn-row" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={executeDelete}>Yes, Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
