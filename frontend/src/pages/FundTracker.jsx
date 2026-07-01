@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getAllEmployees } from '../db';
 
-const API_URL = import.meta.env.VITE_API_URL || '';
+// Mirrors the pattern in useSync.js — VITE_API_URL already contains /api
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
@@ -48,7 +49,7 @@ export default function FundTracker({ isOnline }) {
       setEmployees(emps);
 
       if (isOnline) {
-        const res = await fetch(`${API_URL}/api/fund-payments/?year=${year}`);
+        const res = await fetch(`${API_BASE}/fund-payments/?year=${year}`);
         if (res.ok) {
           const data = await res.json();
           const map = {};
@@ -87,7 +88,7 @@ export default function FundTracker({ isOnline }) {
     if (isOnline && emp.id) {
       setSaving(true);
       try {
-        await fetch(`${API_URL}/api/fund-payments/upsert/`, {
+        await fetch(`${API_BASE}/fund-payments/upsert/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

@@ -63,21 +63,15 @@ class DTRBatchViewSet(viewsets.ModelViewSet):
         return Response(DTRBatchSerializer(batch).data)
 
 
-class FundPaymentViewSet(viewsets.ViewSet):
-    """
-    GET  /api/fund-payments/?year=2026           -> all payments for a year
-    POST /api/fund-payments/upsert/              -> create or update a single record
-    POST /api/fund-payments/bulk/                -> bulk upsert all payments for a year
-    """
-
-    def list(self, request):
-        year = request.query_params.get('year')
-        qs = FundPayment.objects.select_related('employee')
-        if year:
-            qs = qs.filter(year=int(year))
-        serializer = FundPaymentSerializer(qs, many=True)
-        return Response(serializer.data)
-
+@api_view(['GET'])
+def fund_payments_list(request):
+    """GET /api/fund-payments/?year=2026 — returns all payments for a given year."""
+    year = request.query_params.get('year')
+    qs = FundPayment.objects.select_related('employee')
+    if year:
+        qs = qs.filter(year=int(year))
+    serializer = FundPaymentSerializer(qs, many=True)
+    return Response(serializer.data)
 
 @api_view(['POST'])
 def fund_payment_upsert(request):
