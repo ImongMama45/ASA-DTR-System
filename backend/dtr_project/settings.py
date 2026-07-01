@@ -92,4 +92,4 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 100,
 }
 
-CSRF_TRUSTED_ORIGINS = ["https://asa-dtr-system.onrender.com", "https://ASABackendPo.pythonanywhere.com", "https://asabackendpo.pythonanywhere.com"]
+CSRF_TRUSTED_ORIGINS = ["https://asa-dtr-system.onrender.com", "https://ASABackendPo.pythonanywhere.com", "https://asabackendpo.pythonanywhere.com", "https://asa-dtr-system-n8oxoukm3-imongmama45s-projects.vercel.app"]
