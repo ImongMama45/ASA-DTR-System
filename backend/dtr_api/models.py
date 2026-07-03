@@ -88,3 +88,40 @@ class SyncLog(models.Model):
 
     class Meta:
         ordering = ['-processed_at']
+
+
+class SheetsSyncState(models.Model):
+    """
+    Singleton model (always pk=1) that tracks the state of the
+    System → Google Sheets mirror. Use SheetsSyncState.get() everywhere.
+    """
+    # The Google Sheets file ID once created; None means sheet doesn't exist yet.
+    spreadsheet_id = models.CharField(max_length=200, blank=True, null=True)
+    # Dirty flag: set to True whenever any FundPayment changes.
+    # The sync engine clears it after a successful push.
+    is_dirty = models.BooleanField(default=False)
+    # Timestamp of the last *successful* sync. Used by the throttle check.
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Timestamp of when the dirty flag was most recently set.
+    dirty_since = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Sheets Sync State"
+
+    @classmethod
+    def get(cls):
+        """Always returns the single shared state row, creating it if needed."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @classmethod
+    def mark_dirty(cls):
+        """Call this whenever a FundPayment is created or updated."""
+        from django.utils import timezone
+        cls.objects.update_or_create(
+            pk=1,
+            defaults={'is_dirty': True, 'dirty_since': timezone.now()},
+        )
+
+    def __str__(self):
+        return f"SheetsSyncState | dirty={self.is_dirty} | last_synced={self.last_synced_at}"

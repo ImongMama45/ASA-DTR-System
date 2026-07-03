@@ -1,11 +1,16 @@
+import logging
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.utils import timezone
 import json
 
-from .models import Employee, DTRBatch, SyncLog, FundPayment
+logger = logging.getLogger(__name__)
+
+from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState
 from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer
+from . import sheets_sync
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
@@ -99,6 +104,14 @@ def fund_payment_upsert(request):
         cutoff=int(cutoff),
         defaults={'amount': amount},
     )
+
+    # Mark sheet as dirty and run a throttled sync (at most once per 60s).
+    SheetsSyncState.mark_dirty()
+    try:
+        sheets_sync.run_sync_if_needed()
+    except Exception as exc:
+        logger.warning("Inline sheet sync failed (non-fatal): %s", exc)
+
     return Response(FundPaymentSerializer(obj).data, status=status.HTTP_200_OK)
 
 
@@ -152,6 +165,7 @@ def sync_view(request):
                     cutoff=payload.get('cutoff'),
                     defaults={'amount': payload.get('amount', 0)},
                 )
+                SheetsSyncState.mark_dirty()  # flag for next sync cycle
         elif action == 'CREATE_BATCH':
             batch = DTRBatch(
                 label=payload.get('label', ''),
@@ -184,4 +198,106 @@ def dashboard_view(request):
         'total_employees': Employee.objects.filter(is_active=True).count(),
         'total_batches': DTRBatch.objects.count(),
         'last_sync': last_sync.processed_at.strftime('%Y-%m-%d %H:%M') if last_sync else None,
+    })
+
+
+import os
+import calendar
+from datetime import date
+
+@api_view(['POST'])
+def sheets_webhook_sync(request):
+    """
+    Dedicated webhook for Google Sheets sync.
+    Requires X-API-KEY header.
+    Expects payload: { "updates": [ { "employee_id": 45, "year": 2025, "month": 7, "cutoff": 1, "amount": 20 } ] }
+    """
+    api_key = request.headers.get('X-API-KEY')
+    expected_key = os.environ.get('SHEETS_API_KEY', 'asa-sheets-sync-secret-2026')
+    if api_key != expected_key:
+        return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+    updates = request.data.get('updates', [])
+    processed = 0
+    errors = []
+    
+    for item in updates:
+        emp_id = item.get('employee_id')
+        year = int(item.get('year', 0))
+        month = int(item.get('month', 0))
+        cutoff = int(item.get('cutoff', 1))
+        amount = item.get('amount', 0)
+        
+        try:
+            emp = Employee.objects.get(id=emp_id)
+            
+            # Business Logic Parity Validation
+            if cutoff == 1:
+                cutoff_start = date(year, month + 1, 1)
+                cutoff_end = date(year, month + 1, 15)
+            else:
+                cutoff_start = date(year, month + 1, 16)
+                last_day = calendar.monthrange(year, month + 1)[1]
+                cutoff_end = date(year, month + 1, last_day)
+                
+            if emp.start_date and cutoff_end < emp.start_date:
+                errors.append(f"Row skipped: ID {emp_id} (Cutoff before start_date)")
+                continue
+                
+            if emp.end_date and cutoff_start > emp.end_date:
+                errors.append(f"Row skipped: ID {emp_id} (Cutoff after end_date)")
+                continue
+                
+            FundPayment.objects.update_or_create(
+                employee=emp,
+                year=year,
+                month=month,
+                cutoff=cutoff,
+                defaults={'amount': amount}
+            )
+            processed += 1
+        except Employee.DoesNotExist:
+            errors.append(f"Employee {emp_id} not found.")
+        except ValueError:
+             errors.append(f"Invalid date values for Employee {emp_id}.")
+        except Exception as e:
+            errors.append(f"Error processing {emp_id}: {str(e)}")
+            
+    return Response({
+        'status': 'success',
+        'processed': processed,
+        'errors': errors
+    })
+
+
+
+@api_view(['POST'])
+def sheets_sync_now(request):
+    """
+    POST /api/sheets-sync-now/
+    Manually triggers a full, unconditional sync to Google Sheets.
+    Called by the "Sync Now" button in the Fund Tracker UI.
+    """
+    result = sheets_sync.run_sync_now()
+    state = SheetsSyncState.get()
+    return Response({
+        'synced': result.get('synced', False),
+        'spreadsheet_id': result.get('spreadsheet_id'),
+        'last_synced_at': state.last_synced_at.isoformat() if state.last_synced_at else None,
+        'error': result.get('error'),
+    })
+
+
+@api_view(['GET'])
+def sheets_sync_status(request):
+    """
+    GET /api/sheets-sync-status/
+    Returns current sync state for display in the Fund Tracker UI.
+    """
+    state = SheetsSyncState.get()
+    return Response({
+        'is_dirty': state.is_dirty,
+        'spreadsheet_id': state.spreadsheet_id,
+        'last_synced_at': state.last_synced_at.isoformat() if state.last_synced_at else None,
+        'dirty_since': state.dirty_since.isoformat() if state.dirty_since else None,
     })
