@@ -7,7 +7,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 
-from .models import UserProfile
+from .models import UserProfile, Employee
 
 
 # ─── Custom throttle for login endpoint ────────────────────────────────────────
@@ -232,20 +232,79 @@ def users_list_view(request):
             emp = profile.employee
             role = profile.role
             emp_name = emp.name if emp else u.username
+            emp_id = emp.id if emp else None
         except UserProfile.DoesNotExist:
             role = 'Member'
             emp_name = u.username
+            emp_id = None
 
         data.append({
             'id': u.id,
             'username': u.username,
             'role': role,
+            'employee_id': emp_id,
             'employee_name': emp_name,
             'is_active': u.is_active,
             'has_usable_password': u.has_usable_password(),
         })
 
     return Response(data)
+
+
+
+# ─── POST /api/auth/users/create/ ──────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_user_view(request):
+    """
+    SuperAdmin-only: create a new User account linked to an existing Employee.
+    Expects { username, password, role, employee_id (optional) }.
+    """
+    requester_role = getattr(getattr(request.user, 'profile', None), 'role', None)
+    if requester_role != 'SuperAdmin':
+        return Response({'error': 'Only SuperAdmin can create users.'}, status=status.HTTP_403_FORBIDDEN)
+
+    username = request.data.get('username', '').strip()
+    password = request.data.get('password', '')
+    role = request.data.get('role', 'Member').strip()
+    employee_id = request.data.get('employee_id')
+
+    if not username:
+        return Response({'error': 'Username is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(password) < 8:
+        return Response({'error': 'Password must be at least 8 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+    if User.objects.filter(username=username).exists():
+        return Response({'error': f"Username '{username}' is already taken."}, status=status.HTTP_400_BAD_REQUEST)
+
+    valid_roles = {'SuperAdmin', 'President', 'Vice President', 'Secretary', 'Treasurer', 'Member'}
+    if role not in valid_roles:
+        return Response({'error': f"Invalid role."}, status=status.HTTP_400_BAD_REQUEST)
+
+    emp = None
+    if employee_id:
+        emp = Employee.objects.filter(id=employee_id).first()
+        if not emp:
+            return Response({'error': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+        # Ensure no other user is already linked to this employee
+        if hasattr(emp, 'user_profile') and emp.user_profile.user:
+            return Response({'error': f"Employee '{emp.name}' already has a linked user account."}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.create_user(username=username, password=password)
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    profile.role = role
+    if emp:
+        profile.employee = emp
+    profile.save()
+
+    return Response({
+        'id': user.id,
+        'username': user.username,
+        'role': profile.role,
+        'employee_id': emp.id if emp else None,
+        'employee_name': emp.name if emp else username,
+        'is_active': user.is_active,
+        'has_usable_password': True,
+    }, status=status.HTTP_201_CREATED)
 
 
 # ─── POST /api/auth/set-role/<user_id>/ ──────────────────────────────────────

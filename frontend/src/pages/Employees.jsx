@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle } from 'lucide-react';
+import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog } from 'lucide-react';
 import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees } from '../db';
 import {
   fetchEmployees,
@@ -9,7 +9,31 @@ import {
   deleteServerEmployee,
 } from '../hooks/useSync';
 
-function SearchableDropdown({ employees, onSelect }) {
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+
+const ROLE_COLORS = {
+  SuperAdmin: { bg: '#fef3c7', color: '#92400e' },
+  President:  { bg: '#ede9fe', color: '#5b21b6' },
+  'Vice President': { bg: '#e0f2fe', color: '#0c4a6e' },
+  Secretary:  { bg: '#dcfce7', color: '#166534' },
+  Treasurer:  { bg: '#fce7f3', color: '#9d174d' },
+  Member:     { bg: '#f1f5f9', color: '#475569' },
+};
+const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Vice President', 'President', 'SuperAdmin'];
+const OFFICES = [
+  '', 'Finance Office', 'Registrar Office', 'Maintenance Office', 'Clinic',
+  'Admission/Guidance Office', 'HR Office', 'BSSW Program Head Office', 'ICES Office',
+  'BSE Program Head Office', 'BSPA Program Head Office', 'BTVTED/ABELS Program Head Office',
+  'BSA/BSAIS Program Head Office', 'GAD Office', 'Library', 'Admin Office',
+  'PE Department Office', 'BSIT Program Head Office', 'Alumni Office',
+];
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export function SearchableDropdown({ employees, onSelect }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -21,34 +45,20 @@ function SearchableDropdown({ employees, onSelect }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filtered = employees.filter(e =>
-    e.name.toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = employees.filter(e => e.name.toLowerCase().includes(query.toLowerCase()));
 
-  function pick(emp) {
-    setSelected(emp);
-    setQuery(emp.name);
-    setOpen(false);
-    onSelect(emp);
-  }
+  function pick(emp) { setSelected(emp); setQuery(emp.name); setOpen(false); onSelect(emp); }
 
   return (
     <div className="search-dropdown" ref={ref}>
-      <input
-        className="form-input"
-        placeholder="Type to search employees…"
-        value={query}
+      <input className="form-input" placeholder="Type to search employees…" value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true); setSelected(null); onSelect(null); }}
-        onFocus={() => setOpen(true)}
-      />
+        onFocus={() => setOpen(true)} />
       {open && filtered.length > 0 && (
         <div className="dropdown-list">
           {filtered.map(emp => (
-            <div
-              key={emp.id}
-              className={`dropdown-item ${selected?.id === emp.id ? 'selected' : ''}`}
-              onMouseDown={() => pick(emp)}
-            >
+            <div key={emp.id} className={`dropdown-item ${selected?.id === emp.id ? 'selected' : ''}`}
+              onMouseDown={() => pick(emp)}>
               <strong>{emp.name}</strong>
               <span className={`badge badge-${emp.duty.toLowerCase()}`} style={{ marginLeft: 8 }}>{emp.duty}</span>
             </div>
@@ -59,56 +69,32 @@ function SearchableDropdown({ employees, onSelect }) {
   );
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Parse a CSV string into an array of employee-shaped objects.
- * Expected columns (case-insensitive, any order): name, duty, start
- */
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) throw new Error('CSV has no data rows.');
-
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-  const nameIdx = headers.indexOf('name');
-  const dutyIdx = headers.indexOf('duty');
-  const startIdx = headers.indexOf('start');
-
+  const nameIdx = headers.indexOf('name'), dutyIdx = headers.indexOf('duty'), startIdx = headers.indexOf('start');
   if (nameIdx === -1) throw new Error('CSV is missing a "name" column.');
-
   return lines.slice(1).map((line, i) => {
     const cols = line.split(',').map(c => c.trim());
     const name = cols[nameIdx]?.toUpperCase();
     if (!name) throw new Error(`Row ${i + 2}: name is empty.`);
-
     const duty = dutyIdx !== -1 ? cols[dutyIdx]?.toUpperCase() : 'AM';
-    if (!['AM', 'PM'].includes(duty)) throw new Error(`Row ${i + 2}: duty must be AM or PM, got "${duty}".`);
-
-    return {
-      name,
-      duty,
-      start: startIdx !== -1 ? (cols[startIdx] || '') : '',
-    };
+    if (!['AM', 'PM'].includes(duty)) throw new Error(`Row ${i + 2}: duty must be AM or PM.`);
+    return { name, duty, start: startIdx !== -1 ? (cols[startIdx] || '') : '' };
   });
 }
 
-/**
- * Parse a JSON string — accepts either an array or { employees: [...] }.
- */
 function parseJSON(text) {
   let parsed;
   try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON file.'); }
-
   const list = Array.isArray(parsed) ? parsed : parsed.employees;
   if (!Array.isArray(list)) throw new Error('JSON must be an array or { employees: [...] }.');
-
   return list.map((row, i) => {
     const name = (row.name || '').toString().toUpperCase().trim();
     if (!name) throw new Error(`Item ${i + 1}: name is empty.`);
-
     const duty = (row.duty || 'AM').toString().toUpperCase().trim();
     if (!['AM', 'PM'].includes(duty)) throw new Error(`Item ${i + 1}: duty must be AM or PM.`);
-
     return { name, duty, start: row.start || '' };
   });
 }
@@ -116,20 +102,27 @@ function parseJSON(text) {
 function downloadFile(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function Employees({ isOnline }) {
-  const { canManageEmployees, isSuperAdmin } = useAuth();
+  const { canManageEmployees, isSuperAdmin, authFetch } = useAuth();
+
   const [employees, setEmployees] = useState([]);
+  // Map of employee_id → { username, role } for employees that have a user account
+  const [linkedUsers, setLinkedUsers] = useState({});
+
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
+  // User creation fields (only shown when adding a new employee as SuperAdmin)
+  const [createUser, setCreateUser] = useState(false);
+  const [userForm, setUserForm] = useState({ username: '', password: '', role: 'Member' });
+
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
-  const [importStatus, setImportStatus] = useState(null); // { ok, skipped, errors[] }
+  const [importStatus, setImportStatus] = useState(null);
   const [importing, setImporting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const fileInputRef = useRef();
@@ -138,33 +131,67 @@ export default function Employees({ isOnline }) {
 
   async function load() {
     if (isOnline) {
+      try { const list = await fetchEmployees(); await seedEmployees(list); } catch { /* offline */ }
+      // Load linked users map (SuperAdmin only — others get 403)
       try {
-        const list = await fetchEmployees();
-        await seedEmployees(list);
-      } catch { /* fall through */ }
+        const res = await authFetch(`${API_BASE}/auth/users/`);
+        if (res.ok) {
+          const users = await res.json();
+          const map = {};
+          users.forEach(u => { if (u.employee_id) map[u.employee_id] = { username: u.username, role: u.role }; });
+          setLinkedUsers(map);
+        }
+      } catch { /* not SuperAdmin */ }
     }
     setEmployees(await getAllEmployees());
   }
 
   function setField(k, v) { setForm(f => ({ ...f, [k]: v })); }
+  function setUField(k, v) { setUserForm(f => ({ ...f, [k]: v })); }
 
   async function save() {
     if (!form.name.trim()) { setMsg({ type: 'danger', text: 'Please enter a name.' }); return; }
+    if (createUser && !form.id) {
+      if (!userForm.username.trim()) { setMsg({ type: 'danger', text: 'Username is required.' }); return; }
+      if (userForm.password.length < 8) { setMsg({ type: 'danger', text: 'Password must be at least 8 characters.' }); return; }
+    }
     setSaving(true);
     const data = { name: form.name.trim().toUpperCase(), duty: form.duty, office: form.office, start: form.start };
 
-    if (isOnline) {
-      try {
-        if (form.id) { await updateServerEmployee(form.id, data); setMsg({ type: 'success', text: 'Employee updated.' }); }
-        else { await createServerEmployee(data); setMsg({ type: 'success', text: 'Employee added.' }); }
+    try {
+      let serverId = form.id;
+      if (isOnline) {
+        if (form.id) {
+          await updateServerEmployee(form.id, data);
+          setMsg({ type: 'success', text: 'Employee updated.' });
+        } else {
+          const created = await createServerEmployee(data);
+          serverId = created?.id;
+          setMsg({ type: 'success', text: 'Employee added.' });
+
+          // Also create the linked user account if requested
+          if (createUser && serverId && isSuperAdmin) {
+            const res = await authFetch(`${API_BASE}/auth/users/create/`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...userForm, employee_id: serverId }),
+            });
+            const resData = await res.json();
+            if (!res.ok) {
+              setMsg({ type: 'danger', text: `Employee saved but user creation failed: ${resData.error}` });
+            } else {
+              setMsg({ type: 'success', text: `Employee + user account "${userForm.username}" created!` });
+            }
+          }
+        }
         const list = await fetchEmployees();
         await seedEmployees(list);
-      } catch {
+      } else {
         if (form.id) await updateEmployee({ ...data, id: form.id });
         else await addEmployee(data);
         setMsg({ type: 'success', text: 'Saved locally (will sync when online).' });
       }
-    } else {
+    } catch {
       if (form.id) await updateEmployee({ ...data, id: form.id });
       else await addEmployee(data);
       setMsg({ type: 'success', text: 'Saved locally (will sync when online).' });
@@ -173,11 +200,7 @@ export default function Employees({ isOnline }) {
     setSaving(false);
     clearForm();
     load();
-    setTimeout(() => setMsg(null), 3000);
-  }
-
-  function confirmDelete(emp) {
-    setDeleteTarget(emp);
+    setTimeout(() => setMsg(null), 4000);
   }
 
   async function executeDelete() {
@@ -195,33 +218,29 @@ export default function Employees({ isOnline }) {
 
   function edit(emp) {
     setForm({ id: emp.id, name: emp.name, duty: emp.duty, office: emp.office || '', start: emp.start || '' });
+    setCreateUser(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function clearForm() { setForm({ id: null, name: '', duty: 'AM', office: '', start: '' }); }
-  function initials(name) { return name.split(' ').map(w => w[0]).join('').slice(0, 2); }
+  function clearForm() {
+    setForm({ id: null, name: '', duty: 'AM', office: '', start: '' });
+    setUserForm({ username: '', password: '', role: 'Member' });
+    setCreateUser(false);
+  }
 
-  // ── import ──────────────────────────────────────────────────────────────────
+  function initials(name) { return name.split(' ').map(w => w[0]).join('').slice(0, 2); }
 
   async function handleFileUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Reset so the same file can be re-selected
     e.target.value = '';
-
-    setImporting(true);
-    setImportStatus(null);
-
+    setImporting(true); setImportStatus(null);
     let rows;
     try {
       const text = await file.text();
       const ext = file.name.split('.').pop().toLowerCase();
       rows = ext === 'json' ? parseJSON(text) : parseCSV(text);
-    } catch (err) {
-      setImportStatus({ ok: 0, skipped: 0, errors: [err.message] });
-      setImporting(false);
-      return;
-    }
+    } catch (err) { setImportStatus({ ok: 0, skipped: 0, errors: [err.message] }); setImporting(false); return; }
 
     let ok = 0, skipped = 0;
     const errors = [];
@@ -230,189 +249,131 @@ export default function Employees({ isOnline }) {
 
     for (const row of rows) {
       if (existingNames.has(row.name)) { skipped++; continue; }
-
       try {
-        if (isOnline) {
-          try { await createServerEmployee(row); }
-          catch { await addEmployee(row); }
-        } else {
-          await addEmployee(row);
-        }
-        existingNames.add(row.name);
-        ok++;
-      } catch (err) {
-        errors.push(`${row.name}: ${err.message}`);
-      }
+        if (isOnline) { try { await createServerEmployee(row); } catch { await addEmployee(row); } }
+        else { await addEmployee(row); }
+        existingNames.add(row.name); ok++;
+      } catch (err) { errors.push(`${row.name}: ${err.message}`); }
     }
-
-    // Re-seed from server if online so everything is in sync
-    if (isOnline) {
-      try { const list = await fetchEmployees(); await seedEmployees(list); } catch { /* ok */ }
-    }
-
+    if (isOnline) { try { const list = await fetchEmployees(); await seedEmployees(list); } catch { } }
     setImportStatus({ ok, skipped, errors });
     setImporting(false);
     load();
   }
 
-  // ── export ──────────────────────────────────────────────────────────────────
-
   function exportCSV() {
-    const header = 'name,duty,office,start';
     const rows = employees.map(e => `${e.name},${e.duty},${e.office || ''},${e.start || ''}`);
-    downloadFile([header, ...rows].join('\n'), 'employees.csv', 'text/csv');
+    downloadFile(['name,duty,office,start', ...rows].join('\n'), 'employees.csv', 'text/csv');
   }
-
   function exportJSON() {
-    const data = employees.map(({ name, duty, office, start }) => ({ name, duty, office: office || '', start: start || '' }));
-    downloadFile(JSON.stringify(data, null, 2), 'employees.json', 'application/json');
+    downloadFile(JSON.stringify(employees.map(({ name, duty, office, start }) => ({ name, duty, office: office || '', start: start || '' })), null, 2), 'employees.json', 'application/json');
   }
 
-  // ── render ───────────────────────────────────────────────────────────────────
+  // ── render ────────────────────────────────────────────────────────────────
 
   return (
     <div>
-      {/* ── Add / Edit form — only for roles that can write ── */}
+      {/* ── Add / Edit form ── */}
       {canManageEmployees && (
-      <div className="card">
-        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {form.id ? <><Edit2 size={18} /> Edit Employee</> : <><Plus size={18} /> Add Employee</>}
+        <div className="card">
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {form.id ? <><Edit2 size={18} /> Edit Employee</> : <><Plus size={18} /> Add Employee</>}
+          </div>
+          {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
+
+          <div className="form-grid">
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Full Name (ALL CAPS)</label>
+              <input className="form-input" placeholder="e.g. JUAN DELA CRUZ"
+                value={form.name} onChange={e => setField('name', e.target.value.toUpperCase())} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Duty Type</label>
+              <select className="form-select" value={form.duty} onChange={e => setField('duty', e.target.value)}>
+                <option value="AM">AM (Morning Duty)</option>
+                <option value="PM">PM (Afternoon Duty)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Office (Optional)</label>
+              <select className="form-select" value={form.office} onChange={e => setField('office', e.target.value)}>
+                {OFFICES.map(o => <option key={o} value={o}>{o || '-- None --'}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Start Date</label>
+              <input type="date" className="form-input" value={form.start} onChange={e => setField('start', e.target.value)} />
+            </div>
+          </div>
+
+          {/* Create user account toggle — only when adding new, SuperAdmin only */}
+          {!form.id && isSuperAdmin && (
+            <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#334155' }}>
+                <input type="checkbox" checked={createUser} onChange={e => setCreateUser(e.target.checked)} />
+                <KeyRound size={15} /> Also create a login account for this employee
+              </label>
+
+              {createUser && (
+                <div className="form-grid" style={{ marginTop: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Username</label>
+                    <input className="form-input" placeholder="e.g. sa_juan" value={userForm.username}
+                      onChange={e => setUField('username', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Password (min 8 chars)</label>
+                    <input type="password" className="form-input" placeholder="••••••••" value={userForm.password}
+                      onChange={e => setUField('password', e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Role</label>
+                    <select className="form-select" value={userForm.role} onChange={e => setUField('role', e.target.value)}>
+                      {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="btn-row" style={{ marginTop: 16 }}>
+            <button className="btn btn-primary" onClick={save} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {saving ? 'Saving…' : form.id ? <><Edit2 size={16} /> Update Employee</> : <><Plus size={16} /> {createUser ? 'Add Employee + Create Account' : 'Add Employee'}</>}
+            </button>
+            {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
+          </div>
         </div>
-        {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
-        <div className="form-grid">
-          <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-            <label className="form-label">Full Name (ALL CAPS)</label>
-            <input
-              className="form-input"
-              placeholder="e.g. JUAN DELA CRUZ"
-              value={form.name}
-              onChange={e => setField('name', e.target.value.toUpperCase())}
-            />
+      )}
+
+      {/* ── Import card ── */}
+      {canManageEmployees && (
+        <div className="card">
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Upload size={18} /> Import Employees
           </div>
-          <div className="form-group">
-            <label className="form-label">Duty Type</label>
-            <select className="form-select" value={form.duty} onChange={e => setField('duty', e.target.value)}>
-              <option value="AM">AM (Morning Duty)</option>
-              <option value="PM">PM (Afternoon Duty)</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Office (Optional)</label>
-            <select className="form-select" value={form.office} onChange={e => setField('office', e.target.value)}>
-              <option value="">-- None --</option>
-              <option value="Finance Office">Finance Office</option>
-              <option value="Registrar Office">Registrar Office</option>
-              <option value="Maintenance Office">Maintenance Office</option>
-              <option value="Clinic">Clinic</option>
-              <option value="Admission/Guidance Office">Admission/Guidance Office</option>
-              <option value="HR Office">HR Office</option>
-              <option value="BSSW Program Head Office">BSSW Program Head Office</option>
-              <option value="ICES Office">ICES Office</option>
-              <option value="BSE Program Head Office">BSE Program Head Office</option>
-              <option value="BSPA Program Head Office">BSPA Program Head Office</option>
-              <option value="BTVTED/ABELS Program Head Office">BTVTED/ABELS Program Head Office</option>
-              <option value="BSA/BSAIS Program Head Office">BSA/BSAIS Program Head Office</option>
-              <option value="GAD Office">GAD Office</option>
-              <option value="Library">Library</option>
-              <option value="Admin Office">Admin Office</option>
-              <option value="PE Department Office">PE Department Office</option>
-              <option value="BSIT Program Head Office">BSIT Program Head Office</option>
-              <option value="Alumni Office">Alumni Office</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Start Date</label>
-            <input type="date" className="form-input" value={form.start} onChange={e => setField('start', e.target.value)} />
-          </div>
-        </div>
-        <div className="btn-row">
-          <button className="btn btn-primary" onClick={save} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {saving ? 'Saving…' : form.id ? <><Edit2 size={16} /> Update Employee</> : <><Plus size={16} /> Add Employee</>}
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
+            Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees. Duplicate names are skipped.
+          </p>
+          <input ref={fileInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={handleFileUpload} />
+          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {importing ? '⏳ Importing…' : <><Upload size={16} /> Choose File (.csv / .json)</>}
           </button>
-          {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
-        </div>
-      </div>
-      )} {/* end canManageEmployees */}
-
-      {/* ── Import card — managers only ── */}
-      {canManageEmployees && (
-      <div className="card">
-        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Upload size={18} /> Import Employees
-        </div>
-        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
-          Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees.
-          Duplicate names are skipped automatically.
-        </p>
-
-        {/* Template hint */}
-        <details style={{ marginBottom: 12, fontSize: '0.8rem', color: 'var(--text-muted, #666)' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>View expected format</summary>
-          <div style={{ marginTop: 8, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-            <div>
-              <strong>CSV</strong>
-              <pre style={{ margin: '4px 0 0', background: 'var(--bg-muted, #f4f4f4)', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem' }}>
-                {`name,duty,start
-JUAN DELA CRUZ,AM,2023-01-15
-MARIA SANTOS,PM,2022-06-01`}
-              </pre>
+          {importStatus && (
+            <div style={{ marginTop: 14 }}>
+              {importStatus.ok > 0 && <div className="alert alert-success">✅ {importStatus.ok} employee{importStatus.ok !== 1 ? 's' : ''} imported.</div>}
+              {importStatus.skipped > 0 && <div className="alert alert-warning">⏭ {importStatus.skipped} duplicate{importStatus.skipped !== 1 ? 's' : ''} skipped.</div>}
+              {importStatus.errors.length > 0 && (
+                <div className="alert alert-danger">
+                  <strong>⚠ {importStatus.errors.length} error{importStatus.errors.length !== 1 ? 's' : ''}:</strong>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{importStatus.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+                </div>
+              )}
             </div>
-            <div>
-              <strong>JSON</strong>
-              <pre style={{ margin: '4px 0 0', background: 'var(--bg-muted, #f4f4f4)', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem' }}>
-                {`[
-  { "name": "JUAN DELA CRUZ", "duty": "AM", "start": "2023-01-15" },
-  { "name": "MARIA SANTOS",   "duty": "PM", "start": "2022-06-01" }
-]`}
-              </pre>
-            </div>
-          </div>
-        </details>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,.json"
-          style={{ display: 'none' }}
-          onChange={handleFileUpload}
-        />
-        <button
-          className="btn btn-primary"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={importing}
-          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-        >
-          {importing ? '⏳ Importing…' : <><Upload size={16} /> Choose File (.csv / .json)</>}
-        </button>
-
-        {/* Import result summary */}
-        {importStatus && (
-          <div style={{ marginTop: 14 }}>
-            {importStatus.ok > 0 && (
-              <div className="alert alert-success">
-                ✅ {importStatus.ok} employee{importStatus.ok !== 1 ? 's' : ''} imported successfully.
-              </div>
-            )}
-            {importStatus.skipped > 0 && (
-              <div className="alert alert-warning">
-                ⏭ {importStatus.skipped} duplicate{importStatus.skipped !== 1 ? 's' : ''} skipped (already exist).
-              </div>
-            )}
-            {importStatus.errors.length > 0 && (
-              <div className="alert alert-danger">
-                <strong>⚠ {importStatus.errors.length} error{importStatus.errors.length !== 1 ? 's' : ''}:</strong>
-                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                  {importStatus.errors.map((e, i) => <li key={i}>{e}</li>)}
-                </ul>
-              </div>
-            )}
-            {importStatus.ok === 0 && importStatus.skipped === 0 && importStatus.errors.length === 0 && (
-              <div className="alert alert-warning">⚠ File was empty or had no valid rows.</div>
-            )}
-          </div>
-        )}
-      </div>
-      )} {/* end canManageEmployees (Import card) */}
+          )}
+        </div>
+      )}
 
       {/* ── Employee list ── */}
       <div className="card">
@@ -422,56 +383,60 @@ MARIA SANTOS,PM,2022-06-01`}
           </div>
           {employees.length > 0 && (
             <div className="btn-row" style={{ margin: 0 }}>
-              <button className="btn btn-sm btn-outline" onClick={exportCSV} title="Download as CSV" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileDown size={14} /> CSV</button>
-              <button className="btn btn-sm btn-outline" onClick={exportJSON} title="Download as JSON" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileJson size={14} /> JSON</button>
+              <button className="btn btn-sm btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileDown size={14} /> CSV</button>
+              <button className="btn btn-sm btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileJson size={14} /> JSON</button>
             </div>
           )}
         </div>
 
         {employees.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon"><User size={32} color="#94a3b8" /></div>
-            <div className="empty-msg">No employees added yet.</div>
-          </div>
+          <div className="empty-state"><div className="empty-icon"><User size={32} color="#94a3b8" /></div><div className="empty-msg">No employees added yet.</div></div>
         ) : (
           <div className="emp-list">
-            {employees.map(emp => (
-              <div className="emp-item" key={emp.id}>
-                <div className="emp-avatar">{initials(emp.name)}</div>
-                <div style={{ flex: 1 }}>
-                  <div className="emp-name">{emp.name}</div>
-                  <div className="emp-meta">
-                    <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
-                    {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}
-                    {emp.start && <span style={{ marginLeft: 8 }}>Since {emp.start}</span>}
-                    {!emp.synced && <span className="badge badge-gray" style={{ marginLeft: 6 }}>Unsynced</span>}
+            {employees.map(emp => {
+              const linked = linkedUsers[emp.id];
+              const roleStyle = linked ? (ROLE_COLORS[linked.role] || ROLE_COLORS.Member) : null;
+              return (
+                <div className="emp-item" key={emp.id}>
+                  <div className="emp-avatar">{initials(emp.name)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="emp-name">{emp.name}</div>
+                    <div className="emp-meta">
+                      <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
+                      {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}
+                      {emp.start && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#666' }}>Since {emp.start}</span>}
+                      {linked ? (
+                        <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: roleStyle.bg, color: roleStyle.color }}>
+                          <UserCog size={10} style={{ display: 'inline', marginRight: 3 }} />{linked.username} · {linked.role}
+                        </span>
+                      ) : isSuperAdmin ? (
+                        <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No account</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="emp-actions">
+                    {canManageEmployees && <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>}
+                    {isSuperAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget(emp)}>Archive</button>}
                   </div>
                 </div>
-                <div className="emp-actions">
-                  {canManageEmployees && (
-                    <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>
-                  )}
-                  {isSuperAdmin && (
-                    <button className="btn btn-sm btn-danger" onClick={() => confirmDelete(emp)}>Archive</button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
       {/* ── Delete Modal ── */}
       {deleteTarget && (
         <div className="modal-overlay">
           <div className="modal-content card" style={{ margin: 0 }}>
-            <h3 style={{ marginTop: 0, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertTriangle size={20} /> Confirm Deletion
+            <h3 style={{ marginTop: 0, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={20} /> Confirm Archive
             </h3>
-            <p style={{ margin: '16px 0' }}>Are you sure you want to delete <strong>{deleteTarget.name}</strong>?</p>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>This action cannot be undone.</p>
+            <p style={{ margin: '16px 0' }}>Archive <strong>{deleteTarget.name}</strong>? Their fund history will be preserved.</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Their login account (if any) will also be disabled.</p>
             <div className="btn-row" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={executeDelete}>Yes, Delete</button>
+              <button className="btn btn-danger" onClick={executeDelete}>Yes, Archive</button>
             </div>
           </div>
         </div>
@@ -479,5 +444,3 @@ MARIA SANTOS,PM,2022-06-01`}
     </div>
   );
 }
-
-export { SearchableDropdown };

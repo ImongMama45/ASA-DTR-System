@@ -24,6 +24,7 @@ urlpatterns = [
     path('auth/logout/', auth_views.logout_view, name='auth-logout'),
     # ── User management (SuperAdmin only) ───────────────────────────────────
     path('auth/users/', auth_views.users_list_view, name='auth-users-list'),
+    path('auth/users/create/', auth_views.create_user_view, name='auth-users-create'),
     path('auth/set-role/<int:user_id>/', auth_views.set_role_view, name='auth-set-role'),
     path('auth/toggle-active/<int:user_id>/', auth_views.toggle_active_view, name='auth-toggle-active'),
 ]
