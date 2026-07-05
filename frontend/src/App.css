@@ -347,3 +347,19 @@ body {
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--gray-border);
 }
+
+/* ===== LOGIN PAGE ANIMATIONS ===== */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.08); }
+}
+
+/* Input focus ring — applies globally to login page inputs */
+.login-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}

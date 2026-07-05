@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle } from 'lucide-react';
 import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees } from '../db';
 import {
   fetchEmployees,
@@ -122,6 +124,7 @@ function downloadFile(content, filename, mime) {
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function Employees({ isOnline }) {
+  const { canManageEmployees, isSuperAdmin } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
   const [saving, setSaving] = useState(false);
@@ -269,9 +272,12 @@ export default function Employees({ isOnline }) {
 
   return (
     <div>
-      {/* ── Add / Edit form ── */}
+      {/* ── Add / Edit form — only for roles that can write ── */}
+      {canManageEmployees && (
       <div className="card">
-        <div className="card-title">{form.id ? '✏ Edit Employee' : '➕ Add Employee'}</div>
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {form.id ? <><Edit2 size={18} /> Edit Employee</> : <><Plus size={18} /> Add Employee</>}
+        </div>
         {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
         <div className="form-grid">
           <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -320,16 +326,20 @@ export default function Employees({ isOnline }) {
           </div>
         </div>
         <div className="btn-row">
-          <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : (form.id ? '💾 Update Employee' : '➕ Add Employee')}
+          <button className="btn btn-primary" onClick={save} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {saving ? 'Saving…' : form.id ? <><Edit2 size={16} /> Update Employee</> : <><Plus size={16} /> Add Employee</>}
           </button>
           {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
         </div>
       </div>
+      )} {/* end canManageEmployees */}
 
-      {/* ── Import card ── */}
+      {/* ── Import card — managers only ── */}
+      {canManageEmployees && (
       <div className="card">
-        <div className="card-title">📂 Import Employees</div>
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Upload size={18} /> Import Employees
+        </div>
         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
           Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees.
           Duplicate names are skipped automatically.
@@ -370,8 +380,9 @@ MARIA SANTOS,PM,2022-06-01`}
           className="btn btn-primary"
           onClick={() => fileInputRef.current?.click()}
           disabled={importing}
+          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
         >
-          {importing ? '⏳ Importing…' : '📁 Choose File (.csv / .json)'}
+          {importing ? '⏳ Importing…' : <><Upload size={16} /> Choose File (.csv / .json)</>}
         </button>
 
         {/* Import result summary */}
@@ -401,22 +412,25 @@ MARIA SANTOS,PM,2022-06-01`}
           </div>
         )}
       </div>
+      )} {/* end canManageEmployees (Import card) */}
 
       {/* ── Employee list ── */}
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-          <div className="card-title" style={{ margin: 0 }}>👥 Employee List ({employees.length})</div>
+          <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Users size={18} /> Employee List ({employees.length})
+          </div>
           {employees.length > 0 && (
             <div className="btn-row" style={{ margin: 0 }}>
-              <button className="btn btn-sm btn-outline" onClick={exportCSV} title="Download as CSV">⬇ CSV</button>
-              <button className="btn btn-sm btn-outline" onClick={exportJSON} title="Download as JSON">⬇ JSON</button>
+              <button className="btn btn-sm btn-outline" onClick={exportCSV} title="Download as CSV" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileDown size={14} /> CSV</button>
+              <button className="btn btn-sm btn-outline" onClick={exportJSON} title="Download as JSON" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileJson size={14} /> JSON</button>
             </div>
           )}
         </div>
 
         {employees.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">👤</div>
+            <div className="empty-icon"><User size={32} color="#94a3b8" /></div>
             <div className="empty-msg">No employees added yet.</div>
           </div>
         ) : (
@@ -434,8 +448,12 @@ MARIA SANTOS,PM,2022-06-01`}
                   </div>
                 </div>
                 <div className="emp-actions">
-                  <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => confirmDelete(emp)}>Delete</button>
+                  {canManageEmployees && (
+                    <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>
+                  )}
+                  {isSuperAdmin && (
+                    <button className="btn btn-sm btn-danger" onClick={() => confirmDelete(emp)}>Archive</button>
+                  )}
                 </div>
               </div>
             ))}
@@ -447,7 +465,7 @@ MARIA SANTOS,PM,2022-06-01`}
         <div className="modal-overlay">
           <div className="modal-content card" style={{ margin: 0 }}>
             <h3 style={{ marginTop: 0, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              ⚠️ Confirm Deletion
+              <AlertTriangle size={20} /> Confirm Deletion
             </h3>
             <p style={{ margin: '16px 0' }}>Are you sure you want to delete <strong>{deleteTarget.name}</strong>?</p>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>This action cannot be undone.</p>

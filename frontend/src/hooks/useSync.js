@@ -5,9 +5,18 @@ import { getSyncQueue, clearSyncItem, seedEmployees, seedBatches } from '../db';
 // Falls back to '/api' which Vite's dev-server proxy rewrites to localhost:8000.
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
+// ── Auth token helper ──────────────────────────────────────────────────────────
+function getAuthHeaders() {
+  const token = localStorage.getItem('access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // ── Low-level helper ──────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
-  const res = await fetch(`${API_BASE}${path}`, opts);
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...opts,
+    headers: { ...getAuthHeaders(), ...(opts.headers || {}) },
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.status === 204 ? null : res.json();
 }
@@ -66,11 +75,13 @@ export async function updateServerBatch(id, batch) {
 }
 
 // ── Sync hook ─────────────────────────────────────────────────────────────────
-// Ping the Render server to check true reachability (not just navigator.onLine)
+// Ping the server to check true reachability (not just navigator.onLine)
 async function checkServerReachable() {
   try {
-    const res = await fetch(`${API_BASE}/employees/`, { method: 'HEAD', cache: 'no-store' });
-    return res.ok;
+    // Use an unprotected endpoint (the root home view) for the liveness ping
+    // so it doesn't fail just because the user isn't logged in yet.
+    const res = await fetch(`${API_BASE.replace('/api', '')}/`, { method: 'GET', cache: 'no-store' });
+    return res.ok || res.status === 401; // 401 means the server is up but needs auth — that's fine
   } catch {
     return false;
   }
@@ -127,7 +138,10 @@ export function useSync() {
         try {
           await fetch(`${API_BASE}/sync/`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...getAuthHeaders(),
+            },
             body: JSON.stringify(item),
           });
           await clearSyncItem(item.id);

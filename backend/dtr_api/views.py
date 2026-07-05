@@ -1,7 +1,8 @@
 import logging
 
 from rest_framework import viewsets, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
 import json
@@ -11,10 +12,25 @@ logger = logging.getLogger(__name__)
 from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState
 from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer
 from . import sheets_sync
+from .permissions import IsSuperAdmin, CanManageEmployees, CanManageDTR, CanManageFunds
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
+
+    def get_permissions(self):
+        """
+        Permission tiers:
+        - list / retrieve        → IsAuthenticated (all roles can read)
+        - create / update        → CanManageEmployees (SuperAdmin, President, VP)
+        - destroy (archive/soft) → CanManageEmployees (President/VP can archive departing members)
+        - hard_delete (custom)   → IsSuperAdmin only (irreversible, permanent)
+        """
+        if self.action == 'hard_delete':
+            return [IsSuperAdmin()]
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [CanManageEmployees()]
+        return [IsAuthenticated()]
 
     def get_queryset(self):
         qs = Employee.objects.all()
@@ -26,19 +42,52 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return qs
 
     def destroy(self, request, *args, **kwargs):
-        """Soft-delete: archive instead of actually deleting."""
+        """Soft-delete (archive): sets is_active=False and disables the linked User account.
+        President and VP can perform this for routine member departures.
+        Use hard_delete (SuperAdmin only) for permanent removal."""
         employee = self.get_object()
         end_date = request.data.get('end_date', None)
         employee.is_active = False
         if end_date:
             employee.end_date = end_date
         employee.save()
+        if hasattr(employee, 'user_profile') and employee.user_profile.user:
+            employee.user_profile.user.is_active = False
+            employee.user_profile.user.save()
         return Response({'status': 'archived'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['delete'], url_path='hard-delete')
+    def hard_delete(self, request, pk=None):
+        """Permanent removal of the Employee record (SuperAdmin only).
+        The linked User account is disabled (not deleted) so the audit trail
+        (fund payments, DTR history) is preserved — fund payments become orphaned
+        rows with employee=NULL, still visible in the Fund Tracker as historical data.
+        """
+        employee = self.get_object()
+        # Disable — but do NOT delete — the linked User so login is blocked
+        # but fund/DTR history rows referencing this employee are kept intact.
+        if hasattr(employee, 'user_profile') and employee.user_profile.user:
+            user = employee.user_profile.user
+            user.is_active = False
+            user.save()
+            # Detach the profile so the user can't be re-linked accidentally
+            employee.user_profile.employee = None
+            employee.user_profile.save()
+        # Deleting the Employee now leaves FundPayment.employee = NULL (SET_NULL)
+        # preserving all historical payment records.
+        employee.delete()
+        return Response({'status': 'deleted'}, status=status.HTTP_200_OK)
 
 
 class DTRBatchViewSet(viewsets.ModelViewSet):
     queryset = DTRBatch.objects.all()
     serializer_class = DTRBatchSerializer
+
+    def get_permissions(self):
+        """All authenticated users can read; only DTR managers can write."""
+        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated()]
+        return [CanManageDTR()]
 
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
@@ -68,7 +117,9 @@ class DTRBatchViewSet(viewsets.ModelViewSet):
         return Response(DTRBatchSerializer(batch).data)
 
 
+# ── HIGHEST HARM: fund payment write path ─────────────────────────────────────
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def fund_payments_list(request):
     """GET /api/fund-payments/?year=2026 — returns all payments for a given year."""
     year = request.query_params.get('year')
@@ -79,6 +130,7 @@ def fund_payments_list(request):
     return Response(serializer.data)
 
 @api_view(['POST'])
+@permission_classes([CanManageFunds])
 def fund_payment_upsert(request):
     """Create or update a single fund payment record."""
     employee_local_id = request.data.get('employee_local_id')
@@ -115,11 +167,30 @@ def fund_payment_upsert(request):
     return Response(FundPaymentSerializer(obj).data, status=status.HTTP_200_OK)
 
 
+# ── Sync queue — requires auth; action-level checks below ─────────────────────
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def sync_view(request):
-    """Receives sync queue items from the frontend."""
+    """Receives sync queue items from the frontend. Auth required."""
     action = request.data.get('action')
     payload = request.data.get('payload', {})
+    role = getattr(getattr(request.user, 'profile', None), 'role', None)
+
+    # Action-level authorization — mirrors the permission matrix
+    WRITE_ACTIONS_EMPLOYEE = {'CREATE_EMPLOYEE', 'UPDATE_EMPLOYEE', 'ARCHIVE_EMPLOYEE', 'RESTORE_EMPLOYEE'}
+    DELETE_ACTIONS = {'DELETE_EMPLOYEE'}
+    DTR_ACTIONS = {'CREATE_BATCH', 'UPDATE_BATCH'}
+    FUND_ACTIONS = {'UPSERT_FUND_PAYMENT'}
+
+    if action in DELETE_ACTIONS and role != 'SuperAdmin':
+        return Response({'error': 'Only SuperAdmin can delete employees.'}, status=status.HTTP_403_FORBIDDEN)
+    if action in WRITE_ACTIONS_EMPLOYEE and role not in {'SuperAdmin', 'President', 'Vice President'}:
+        return Response({'error': 'Insufficient permissions to modify employees.'}, status=status.HTTP_403_FORBIDDEN)
+    if action in DTR_ACTIONS and role not in {'SuperAdmin', 'President', 'Vice President', 'Secretary'}:
+        return Response({'error': 'Insufficient permissions to manage DTR.'}, status=status.HTTP_403_FORBIDDEN)
+    if action in FUND_ACTIONS and role not in {'SuperAdmin', 'President', 'Vice President', 'Treasurer'}:
+        return Response({'error': 'Insufficient permissions to edit fund records.'}, status=status.HTTP_403_FORBIDDEN)
+
     log = SyncLog(action=action, payload=json.dumps(payload))
     try:
         if action == 'CREATE_EMPLOYEE':
@@ -144,15 +215,23 @@ def sync_view(request):
                 update_fields['end_date'] = payload.get('end_date') or None
             Employee.objects.filter(local_id=str(payload.get('id', ''))).update(**update_fields)
         elif action == 'ARCHIVE_EMPLOYEE':
-            Employee.objects.filter(local_id=str(payload.get('id', ''))).update(
-                is_active=False,
-                end_date=payload.get('end_date') or None,
-            )
+            emp = Employee.objects.filter(local_id=str(payload.get('id', ''))).first()
+            if emp:
+                emp.is_active = False
+                emp.end_date = payload.get('end_date') or None
+                emp.save()
+                if hasattr(emp, 'user_profile') and emp.user_profile.user:
+                    emp.user_profile.user.is_active = False
+                    emp.user_profile.user.save()
         elif action == 'RESTORE_EMPLOYEE':
-            Employee.objects.filter(local_id=str(payload.get('id', ''))).update(
-                is_active=True,
-                end_date=None,
-            )
+            emp = Employee.objects.filter(local_id=str(payload.get('id', ''))).first()
+            if emp:
+                emp.is_active = True
+                emp.end_date = None
+                emp.save()
+                if hasattr(emp, 'user_profile') and emp.user_profile.user:
+                    emp.user_profile.user.is_active = True
+                    emp.user_profile.user.save()
         elif action == 'DELETE_EMPLOYEE':
             Employee.objects.filter(local_id=str(payload.get('id', ''))).delete()
         elif action == 'UPSERT_FUND_PAYMENT':
@@ -165,7 +244,14 @@ def sync_view(request):
                     cutoff=payload.get('cutoff'),
                     defaults={'amount': payload.get('amount', 0)},
                 )
-                SheetsSyncState.mark_dirty()  # flag for next sync cycle
+                SheetsSyncState.mark_dirty()
+                # Mirror the direct endpoint: attempt a throttled inline sync so
+                # offline-queued fund edits reach Sheets promptly, not just on
+                # the next manual "Sync Now" click.
+                try:
+                    sheets_sync.run_sync_if_needed()
+                except Exception as exc:
+                    logger.warning("Inline sheet sync (sync_view) failed (non-fatal): %s", exc)
         elif action == 'CREATE_BATCH':
             batch = DTRBatch(
                 label=payload.get('label', ''),
@@ -191,6 +277,7 @@ def sync_view(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def dashboard_view(request):
     from django.db.models import Count
     last_sync = SyncLog.objects.filter(success=True).order_by('-processed_at').first()
@@ -201,77 +288,9 @@ def dashboard_view(request):
     })
 
 
-import os
-import calendar
-from datetime import date
 
 @api_view(['POST'])
-def sheets_webhook_sync(request):
-    """
-    Dedicated webhook for Google Sheets sync.
-    Requires X-API-KEY header.
-    Expects payload: { "updates": [ { "employee_id": 45, "year": 2025, "month": 7, "cutoff": 1, "amount": 20 } ] }
-    """
-    api_key = request.headers.get('X-API-KEY')
-    expected_key = os.environ.get('SHEETS_API_KEY', 'asa-sheets-sync-secret-2026')
-    if api_key != expected_key:
-        return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
-        
-    updates = request.data.get('updates', [])
-    processed = 0
-    errors = []
-    
-    for item in updates:
-        emp_id = item.get('employee_id')
-        year = int(item.get('year', 0))
-        month = int(item.get('month', 0))
-        cutoff = int(item.get('cutoff', 1))
-        amount = item.get('amount', 0)
-        
-        try:
-            emp = Employee.objects.get(id=emp_id)
-            
-            # Business Logic Parity Validation
-            if cutoff == 1:
-                cutoff_start = date(year, month + 1, 1)
-                cutoff_end = date(year, month + 1, 15)
-            else:
-                cutoff_start = date(year, month + 1, 16)
-                last_day = calendar.monthrange(year, month + 1)[1]
-                cutoff_end = date(year, month + 1, last_day)
-                
-            if emp.start_date and cutoff_end < emp.start_date:
-                errors.append(f"Row skipped: ID {emp_id} (Cutoff before start_date)")
-                continue
-                
-            if emp.end_date and cutoff_start > emp.end_date:
-                errors.append(f"Row skipped: ID {emp_id} (Cutoff after end_date)")
-                continue
-                
-            FundPayment.objects.update_or_create(
-                employee=emp,
-                year=year,
-                month=month,
-                cutoff=cutoff,
-                defaults={'amount': amount}
-            )
-            processed += 1
-        except Employee.DoesNotExist:
-            errors.append(f"Employee {emp_id} not found.")
-        except ValueError:
-             errors.append(f"Invalid date values for Employee {emp_id}.")
-        except Exception as e:
-            errors.append(f"Error processing {emp_id}: {str(e)}")
-            
-    return Response({
-        'status': 'success',
-        'processed': processed,
-        'errors': errors
-    })
-
-
-
-@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def sheets_sync_now(request):
     """
     POST /api/sheets-sync-now/
@@ -289,6 +308,7 @@ def sheets_sync_now(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def sheets_sync_status(request):
     """
     GET /api/sheets-sync-status/

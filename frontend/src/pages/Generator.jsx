@@ -6,6 +6,7 @@ import {
   generateTime, cutoffLabel, daysInMonth
 } from '../utils/dateUtils';
 import { fetchEmployees, fetchBatches, createServerBatch } from '../hooks/useSync';
+import { AlertTriangle, Users, CalendarDays, CheckCircle2, Check, X, Calendar, Loader2 } from 'lucide-react';
 
 export default function Generator({ onDone, isOnline }) {
   const [step, setStep] = useState(1);
@@ -169,8 +170,8 @@ export default function Generator({ onDone, isOnline }) {
 
   if (!allEmployees.length) return (
     <div className="card">
-      <div className="alert alert-warning">
-        ⚠ No employees found. Please add employees first before generating DTRs.
+      <div className="alert alert-warning" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <AlertTriangle size={16} /> No employees found. Please add employees first before generating DTRs.
       </div>
     </div>
   );
@@ -204,20 +205,20 @@ export default function Generator({ onDone, isOnline }) {
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
               <button
                 className="btn btn-primary"
-                style={{ flex: 1, minWidth: 160, padding: '20px 16px', fontSize: '1rem' }}
+                style={{ flex: 1, minWidth: 160, padding: '20px 16px', fontSize: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
                 onClick={chooseModeAll}
               >
-                👥 All Employees
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Users size={18} /> All Employees</div>
                 <div style={{ fontSize: '0.75rem', fontWeight: 400, marginTop: 4, opacity: 0.85 }}>
                   Generate DTR for everyone ({allEmployees.length})
                 </div>
               </button>
               <button
                 className="btn btn-outline"
-                style={{ flex: 1, minWidth: 160, padding: '20px 16px', fontSize: '1rem' }}
+                style={{ flex: 1, minWidth: 160, padding: '20px 16px', fontSize: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
                 onClick={chooseModeManual}
               >
-                ✅ Choose Manually
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={18} /> Choose Manually</div>
                 <div style={{ fontSize: '0.75rem', fontWeight: 400, marginTop: 4, opacity: 0.85 }}>
                   Pick specific employees
                 </div>
@@ -228,8 +229,8 @@ export default function Generator({ onDone, isOnline }) {
           {/* All mode — show confirmation */}
           {pickMode === 'all' && (
             <>
-              <div className="alert alert-success" style={{ marginTop: 12 }}>
-                ✅ All <strong>{allEmployees.length}</strong> employee(s) selected.
+              <div className="alert alert-success" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 size={16} /> All <strong>{allEmployees.length}</strong> employee(s) selected.
               </div>
               <div className="emp-list" style={{ maxHeight: 320, overflowY: 'auto' }}>
                 {allEmployees.map(emp => (
@@ -239,7 +240,7 @@ export default function Generator({ onDone, isOnline }) {
                       <div className="emp-name">{emp.name}</div>
                       <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
                     </div>
-                    <span style={{ fontSize: 18, color: 'var(--color-success, #22c55e)' }}>✓</span>
+                    <span style={{ fontSize: 18, color: 'var(--color-success, #22c55e)' }}><Check size={18} /></span>
                   </div>
                 ))}
               </div>
@@ -291,10 +292,10 @@ export default function Generator({ onDone, isOnline }) {
                         border: `2px solid ${active ? 'var(--color-success, #22c55e)' : '#ccc'}`,
                         background: active ? 'var(--color-success, #22c55e)' : '#fff',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: '#fff', fontSize: 13, fontWeight: 700,
+                        color: '#fff',
                         transition: 'all 0.15s',
                       }}>
-                        {active ? '✓' : ''}
+                        {active ? <Check size={14} strokeWidth={3} /> : ''}
                       </div>
 
                       <div className="emp-avatar" style={{ margin: '0 4px' }}>
@@ -437,7 +438,7 @@ export default function Generator({ onDone, isOnline }) {
                   <div style={{ fontSize: 9 }}>{DAY_NAMES[d.getDay()]}</div>
                   {status !== 'weekend' && (
                     <div style={{ fontSize: 8 }}>
-                      {status === 'holiday' ? 'HOL' : (status === 'present' ? '✓' : '✗')}
+                      {status === 'holiday' ? 'HOL' : (status === 'present' ? <Check size={10} strokeWidth={4} /> : <X size={10} strokeWidth={4} />)}
                     </div>
                   )}
                 </div>
@@ -453,8 +454,8 @@ export default function Generator({ onDone, isOnline }) {
               <button className="btn btn-primary" onClick={() => setEmpIdx(i => i + 1)}>Next Employee →</button>
             )}
             {empIdx === employees.length - 1 && (
-              <button className="btn btn-success" onClick={finish} disabled={saving}>
-                {saving ? '⏳ Generating…' : '✓ Finish & Generate DTRs'}
+              <button className="btn btn-success" onClick={finish} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {saving ? <><Loader2 size={16} className="login-spinner" /> Generating…</> : <><CheckCircle2 size={16} /> Finish & Generate DTRs</>}
               </button>
             )}
           </div>
@@ -464,7 +465,7 @@ export default function Generator({ onDone, isOnline }) {
       {showHolidayModal && (
         <div className="modal-overlay">
           <div className="modal-content card" style={{ maxWidth: 700, margin: '0 auto' }}>
-            <h3 style={{ marginTop: 0 }}>🗓 Set Global Holidays</h3>
+            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}><CalendarDays size={20} /> Set Global Holidays</h3>
             <div className="alert alert-info" style={{ fontSize: 11 }}>
               Click a day to mark it as a Holiday/Non-working day. This applies to all employees.
             </div>
@@ -489,7 +490,7 @@ export default function Generator({ onDone, isOnline }) {
                   >
                     {day}
                     <div style={{ fontSize: 9 }}>{DAY_NAMES[d.getDay()]}</div>
-                    {!isWknd && <div style={{ fontSize: 8 }}>{isHol ? 'HOL' : '✓'}</div>}
+                    {!isWknd && <div style={{ fontSize: 8 }}>{isHol ? 'HOL' : <Check size={10} strokeWidth={4} />}</div>}
                   </div>
                 );
               })}

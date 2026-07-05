@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import dj_database_url
+from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,6 +21,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'dtr_api',
 ]
@@ -85,11 +88,38 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = True  # Tighten in production
 
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    # Default to IsAuthenticated — auth endpoints explicitly override to AllowAny
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 100,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',
+        'user': '1000/day',
+        'login': '10/minute',   # Applied only to the login endpoint
+    },
+}
+
+# JWT Configuration
+SIMPLE_JWT = {
+    # Access token: 60-minute lifetime stored in localStorage
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    # Refresh token: 4-hour lifetime — kept short since it's also in localStorage
+    'REFRESH_TOKEN_LIFETIME': timedelta(hours=4),
+    # Rotate + blacklist so a stolen refresh token is invalidated on first legitimate use
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    # Include issued-at so clients can detect clock skew
+    'UPDATE_LAST_LOGIN': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 CSRF_TRUSTED_ORIGINS = ["https://asa-dtr-system.onrender.com", "https://ASABackendPo.pythonanywhere.com", "https://asabackendpo.pythonanywhere.com", "https://asa-dtr-system-n8oxoukm3-imongmama45s-projects.vercel.app"]

@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 import json
 
 
@@ -41,6 +42,23 @@ class Employee(models.Model):
         return self.name
 
 
+class UserProfile(models.Model):
+    ROLE_CHOICES = [
+        ('SuperAdmin', 'SuperAdmin'),
+        ('President', 'President'),
+        ('Vice President', 'Vice President'),
+        ('Secretary', 'Secretary'),
+        ('Treasurer', 'Treasurer'),
+        ('Member', 'Member'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    employee = models.OneToOneField(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profile')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Member')
+
+    def __str__(self):
+        return f"{self.user.username} - {self.role}"
+
+
 class DTRBatch(models.Model):
     label = models.CharField(max_length=100)
     month = models.IntegerField()
@@ -65,7 +83,13 @@ class DTRBatch(models.Model):
 
 class FundPayment(models.Model):
     """Tracks the bi-monthly fund payments (₱20 per cutoff) for each employee."""
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='fund_payments')
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fund_payments'
+    )
     year = models.IntegerField()
     month = models.IntegerField()  # 0-indexed (Jan=0)
     cutoff = models.IntegerField()  # 1 or 16
@@ -77,7 +101,8 @@ class FundPayment(models.Model):
         ordering = ['year', 'month', 'cutoff']
 
     def __str__(self):
-        return f"{self.employee.name} - {self.year}/{self.month+1} cutoff {self.cutoff}: ₱{self.amount}"
+        emp_name = self.employee.name if self.employee else '[Deleted Employee]'
+        return f"{emp_name} - {self.year}/{self.month} cutoff {self.cutoff}: ₱{self.amount}"
 
 
 class SyncLog(models.Model):

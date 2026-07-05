@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getAllEmployees, getAllBatches } from '../db';
 import { fetchDashboardStats } from '../hooks/useSync';
 import { MONTH_NAMES } from '../utils/dateUtils';
+import { Users, FileText, CalendarCheck, Wifi, WifiOff, FileSpreadsheet, Cloud, Server } from 'lucide-react';
 
 export default function Dashboard({ isOnline, setPage }) {
   const [employees, setEmployees] = useState([]);
@@ -55,17 +56,19 @@ export default function Dashboard({ isOnline, setPage }) {
       </div>
 
       {!isOnline && (
-        <div className="alert alert-warning">
-          ⚠ You are offline. All changes are saved locally and will sync when internet is available.
+        <div className="alert alert-warning" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <WifiOff size={16} /> You are offline. All changes are saved locally and will sync when internet is available.
         </div>
       )}
 
       <div className="card">
-        <div className="card-title">📂 DTR Batch History</div>
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FileSpreadsheet size={18} /> DTR Batch History
+        </div>
         {loading && <div className="empty-state"><div className="empty-msg">Loading…</div></div>}
         {!loading && batches.length === 0 && (
           <div className="empty-state">
-            <div className="empty-icon">📄</div>
+            <div className="empty-icon"><FileText size={32} color="#94a3b8" /></div>
             <div className="empty-msg">No DTRs generated yet.</div>
             <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setPage('generator')}>
               Generate First DTR
@@ -89,7 +92,9 @@ export default function Dashboard({ isOnline, setPage }) {
 
       {serverStats && (
         <div className="card">
-          <div className="card-title">☁ Server Statistics</div>
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Server size={18} /> Server Statistics
+          </div>
           <div className="form-grid-3">
             <div><strong>{serverStats.total_employees || 0}</strong><br /><span style={{ fontSize: 11 }}>Server Employees</span></div>
             <div><strong>{serverStats.total_batches || 0}</strong><br /><span style={{ fontSize: 11 }}>Server Batches</span></div>

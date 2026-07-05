@@ -3,6 +3,7 @@ import { getAllBatches, updateBatch, seedBatches } from '../db';
 import DTRStrip from '../components/DTRStrip';
 import { exportToDocx } from '../utils/exportDocx';
 import { fetchBatches, updateServerBatch } from '../hooks/useSync';
+import { FileText, Download, Save, Info, Printer, Loader2 } from 'lucide-react';
 
 export default function Review({ isOnline }) {
   const [batches, setBatches] = useState([]);
@@ -71,7 +72,9 @@ export default function Review({ isOnline }) {
   return (
     <div>
       <div className="card">
-        <div className="card-title">🖨 Review & Export DTRs</div>
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Printer size={18} /> Review & Export DTRs
+        </div>
         <div className="form-group">
           <label className="form-label">Select DTR Batch</label>
           <select className="form-select" value={selectedId} onChange={e => selectBatch(e.target.value)}>
@@ -84,19 +87,22 @@ export default function Review({ isOnline }) {
 
         {batch && (
           <div className="btn-row">
-            <button className="btn btn-success" onClick={doExport} disabled={exporting}>
-              {exporting ? '⏳ Generating .docx…' : '⬇ Export to Word (.docx)'}
+            <button className="btn btn-success" onClick={doExport} disabled={exporting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {exporting ? <><Loader2 size={16} className="login-spinner" /> Generating .docx…</> : <><Download size={16} /> Export to Word (.docx)</>}
             </button>
-            <button className="btn btn-primary" onClick={saveEdits}>💾 Save Edits</button>
+            <button className="btn btn-primary" onClick={saveEdits} style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Save size={16} /> Save Edits</button>
           </div>
         )}
       </div>
 
       {batch && (
         <div>
-          <div className="alert alert-info" style={{ marginBottom: 12 }}>
-            ✏ Time values are editable — click any cell in the preview strips below.
-            Each employee is shown as <strong>3 side-by-side strips</strong> (matching the template exactly).
+          <div className="alert alert-info" style={{ marginBottom: 12, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <Info size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              Time values are editable — click any cell in the preview strips below.
+              Each employee is shown as <strong>3 side-by-side strips</strong> (matching the template exactly).
+            </div>
           </div>
 
           {(batch.employees || []).map((empData, ei) => (
@@ -115,8 +121,8 @@ export default function Review({ isOnline }) {
           ))}
 
           <div className="btn-row">
-            <button className="btn btn-success" onClick={doExport} disabled={exporting}>
-              {exporting ? '⏳ Generating .docx…' : '⬇ Export All to Word (.docx)'}
+            <button className="btn btn-success" onClick={doExport} disabled={exporting} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {exporting ? <><Loader2 size={16} className="login-spinner" /> Generating .docx…</> : <><Download size={16} /> Export All to Word (.docx)</>}
             </button>
           </div>
         </div>
@@ -124,7 +130,7 @@ export default function Review({ isOnline }) {
 
       {!batch && batches.length === 0 && (
         <div className="empty-state">
-          <div className="empty-icon">📄</div>
+          <div className="empty-icon"><FileText size={32} color="#94a3b8" /></div>
           <div className="empty-msg">No DTR batches found. Generate a DTR first.</div>
         </div>
       )}
