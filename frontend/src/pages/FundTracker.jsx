@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getAllEmployees } from '../db';
 import { useAuth } from '../contexts/AuthContext';
-import { Wallet, Search, Filter, History, Cloud, CloudOff, RefreshCw, AlertTriangle, Info, Edit3, X, Eye, EyeOff, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Wallet, Search, Filter, History, Cloud, CloudOff, RefreshCw, AlertTriangle, Info, Edit3, X, Eye, EyeOff, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 
 // Mirrors the pattern in useSync.js — VITE_API_URL already contains /api
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
