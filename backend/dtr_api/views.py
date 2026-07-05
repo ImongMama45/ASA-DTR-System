@@ -59,20 +59,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['delete'], url_path='hard-delete')
     def hard_delete(self, request, pk=None):
         """Permanent removal of the Employee record (SuperAdmin only).
-        The linked User account is disabled (not deleted) so the audit trail
-        (fund payments, DTR history) is preserved — fund payments become orphaned
-        rows with employee=NULL, still visible in the Fund Tracker as historical data.
+        The linked User account is completely deleted as requested.
+        Fund payments become orphaned rows with employee=NULL, still visible in the Fund Tracker.
         """
         employee = self.get_object()
-        # Disable — but do NOT delete — the linked User so login is blocked
-        # but fund/DTR history rows referencing this employee are kept intact.
+        # Delete the linked User account completely
         if hasattr(employee, 'user_profile') and employee.user_profile.user:
             user = employee.user_profile.user
-            user.is_active = False
-            user.save()
-            # Detach the profile so the user can't be re-linked accidentally
-            employee.user_profile.employee = None
-            employee.user_profile.save()
+            user.delete()
         # Deleting the Employee now leaves FundPayment.employee = NULL (SET_NULL)
         # preserving all historical payment records.
         employee.delete()

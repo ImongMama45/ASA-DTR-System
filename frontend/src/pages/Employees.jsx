@@ -151,7 +151,7 @@ export default function Employees({ isOnline }) {
 
   async function save() {
     if (!form.name.trim()) { setMsg({ type: 'danger', text: 'Please enter a name.' }); return; }
-    if (createUser && !form.id) {
+    if (createUser) {
       if (!userForm.username.trim()) { setMsg({ type: 'danger', text: 'Username is required.' }); return; }
       if (userForm.password.length < 8) { setMsg({ type: 'danger', text: 'Password must be at least 8 characters.' }); return; }
     }
@@ -168,20 +168,20 @@ export default function Employees({ isOnline }) {
           const created = await createServerEmployee(data);
           serverId = created?.id;
           setMsg({ type: 'success', text: 'Employee added.' });
+        }
 
-          // Also create the linked user account if requested
-          if (createUser && serverId && isSuperAdmin) {
-            const res = await authFetch(`${API_BASE}/auth/users/create/`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...userForm, employee_id: serverId }),
-            });
-            const resData = await res.json();
-            if (!res.ok) {
-              setMsg({ type: 'danger', text: `Employee saved but user creation failed: ${resData.error}` });
-            } else {
-              setMsg({ type: 'success', text: `Employee + user account "${userForm.username}" created!` });
-            }
+        // Also create the linked user account if requested (works for both new and existing)
+        if (createUser && serverId && isSuperAdmin) {
+          const res = await authFetch(`${API_BASE}/auth/users/create/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...userForm, employee_id: serverId }),
+          });
+          const resData = await res.json();
+          if (!res.ok) {
+            setMsg({ type: 'danger', text: `Employee saved but user creation failed: ${resData.error}` });
+          } else {
+            setMsg({ type: 'success', text: `Employee saved & user account "${userForm.username}" created!` });
           }
         }
         const list = await fetchEmployees();
@@ -219,6 +219,7 @@ export default function Employees({ isOnline }) {
   function edit(emp) {
     setForm({ id: emp.id, name: emp.name, duty: emp.duty, office: emp.office || '', start: emp.start || '' });
     setCreateUser(false);
+    setUserForm({ username: `sa_${emp.name.split(',')[0].toLowerCase().replace(/\s+/g, '')}`, password: '', role: 'Member' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -306,8 +307,8 @@ export default function Employees({ isOnline }) {
             </div>
           </div>
 
-          {/* Create user account toggle — only when adding new, SuperAdmin only */}
-          {!form.id && isSuperAdmin && (
+          {/* Create user account toggle — only when SuperAdmin, and employee doesn't have an account */}
+          {isSuperAdmin && (!form.id || !linkedUsers[form.id]) && (
             <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#334155' }}>
                 <input type="checkbox" checked={createUser} onChange={e => setCreateUser(e.target.checked)} />
