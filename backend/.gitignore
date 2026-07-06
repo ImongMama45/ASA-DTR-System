@@ -2,14 +2,27 @@
 __pycache__/
 *.pyc
 *.pyo
+venv/
+env/
 
 # Django
 db.sqlite3
 staticfiles/
 media/
 
-# env
+# Environment Variables
 .env
+
+# Google API Credentials
+dtr-sheets-sync.json
+credentials.json
 
 # IDE
 .vscode/
+.idea/
+
+# Exports / Backups
+*.csv
+*.json
+!package.json
+!package-lock.json
