@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Employee, DTRBatch, FundPayment
+from .models import Employee, DTRBatch, FundPayment, Attachment
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -52,3 +52,10 @@ class DTRBatchSerializer(serializers.ModelSerializer):
 
         serializer = DTRBatchEmployeeSerializer(employees, many=True)
         return serializer.data
+
+
+class AttachmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Attachment
+        fields = ['id', 'original_filename', 'mime_type', 'uploaded_at', 'employee', 'dtr_batch', 'fund_payment']
+        read_only_fields = ['id', 'uploaded_at']

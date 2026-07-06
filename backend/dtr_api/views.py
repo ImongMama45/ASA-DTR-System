@@ -9,10 +9,14 @@ import json
 
 logger = logging.getLogger(__name__)
 
-from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState
-from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer
+from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
+from googleapiclient.errors import HttpError
+from . import drive_client
+from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState, Attachment
+from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer, AttachmentSerializer
 from . import sheets_sync
-from .permissions import IsSuperAdmin, CanManageEmployees, CanManageDTR, CanManageFunds
+from .permissions import IsSuperAdmin, CanManageEmployees, CanManageDTR, CanManageFunds, CanAccessAttachment
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
@@ -70,7 +74,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         # Deleting the Employee now leaves FundPayment.employee = NULL (SET_NULL)
         # preserving all historical payment records.
         employee.delete()
-        return Response({'status': 'deleted'}, status=status.HTTP_200_OK)
+        return Response({'status': 'Funds cleared successfully.'}, status=status.HTTP_200_OK)
 
 
 class DTRBatchViewSet(viewsets.ModelViewSet):
@@ -315,3 +319,65 @@ def sheets_sync_status(request):
         'last_synced_at': state.last_synced_at.isoformat() if state.last_synced_at else None,
         'dirty_since': state.dirty_since.isoformat() if state.dirty_since else None,
     })
+
+
+ALLOWED_MIME_TYPES = {
+    'application/pdf', 'image/jpeg', 'image/png', 'image/webp',
+}
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB -- scanned multi-page PDFs can exceed 15 MB, modern phone photos can be several MB. Do not increase further without explicit reason due to memory pressure on free tiers.
+
+
+@api_view(['POST'])
+@permission_classes([CanAccessAttachment])
+def attachment_upload(request):
+    """
+    POST /api/attachments/upload/
+    multipart/form-data with fields: file, employee_id (optional), dtr_batch_id (optional), fund_payment_id (optional)
+    """
+    f = request.FILES.get('file')
+    if not f:
+        return Response({'error': 'No file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    if f.content_type not in ALLOWED_MIME_TYPES:
+        return Response({'error': f'Unsupported file type: {f.content_type}'}, status=status.HTTP_400_BAD_REQUEST)
+    if f.size > MAX_UPLOAD_BYTES:
+        return Response({'error': 'File too large.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        drive_file_id = drive_client.upload_file(f, f.name, f.content_type)
+    except HttpError as e:
+        logger.error("Drive upload failed: %s", e)
+        return Response({'error': 'Upload to storage failed. Please try again.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+    attachment = Attachment.objects.create(
+        drive_file_id=drive_file_id,
+        original_filename=f.name,
+        mime_type=f.content_type,
+        uploaded_by=request.user,
+        employee_id=request.data.get('employee_id') or None,
+        dtr_batch_id=request.data.get('dtr_batch_id') or None,
+        fund_payment_id=request.data.get('fund_payment_id') or None,
+    )
+    return Response(AttachmentSerializer(attachment).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([CanAccessAttachment])
+def attachment_download(request, attachment_id):
+    """
+    GET /api/attachments/<id>/download/
+    Proxies the file from Drive. Does NOT expose the raw Drive file/link to the client.
+    """
+    attachment = get_object_or_404(Attachment, id=attachment_id)
+    # Perform object-level permission check for GET requests
+    if not CanAccessAttachment().has_object_permission(request, attachment_download, attachment):
+        return Response({'error': 'You do not have permission to view this attachment.'}, status=status.HTTP_403_FORBIDDEN)
+
+    try:
+        content, mime_type = drive_client.download_file(attachment.drive_file_id)
+    except HttpError as e:
+        logger.error("Drive download failed for attachment %s: %s", attachment_id, e)
+        return Response({'error': 'File could not be retrieved.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+    response = HttpResponse(content, content_type=mime_type)
+    response['Content-Disposition'] = f'inline; filename="{attachment.original_filename}"'
+    return response

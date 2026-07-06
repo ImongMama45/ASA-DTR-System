@@ -150,3 +150,33 @@ class SheetsSyncState(models.Model):
 
     def __str__(self):
         return f"SheetsSyncState | dirty={self.is_dirty} | last_synced={self.last_synced_at}"
+
+
+class Attachment(models.Model):
+    """A file (PDF or image) stored in Google Drive, referenced by Django."""
+    drive_file_id = models.CharField(max_length=200, unique=True)
+    original_filename = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=100)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='attachments'
+    )
+    dtr_batch = models.ForeignKey(
+        DTRBatch, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='attachments'
+    )
+    fund_payment = models.ForeignKey(
+        FundPayment, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='attachments'
+    )
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return self.original_filename

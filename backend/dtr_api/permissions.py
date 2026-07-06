@@ -82,3 +82,58 @@ class CanManageFunds(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return _role(request) in self._WRITE_ROLES
+
+
+class CanAccessAttachment(BasePermission):
+    """
+    Custom permission for uploading and downloading attachments.
+    Uploads (POST) check request.data for the target type.
+    Downloads (GET) check the attachment object directly.
+    """
+    message = "You do not have permission to access this attachment."
+
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated and request.user.is_active):
+            return False
+            
+        # For downloads, we rely on has_object_permission
+        if request.method in SAFE_METHODS:
+            return True
+            
+        # For uploads (POST), check the target ID in the request data
+        role = _role(request)
+        if request.data.get('employee_id'):
+            return role in CanManageEmployees._WRITE_ROLES
+        elif request.data.get('dtr_batch_id'):
+            return role in CanManageDTR._WRITE_ROLES
+        elif request.data.get('fund_payment_id'):
+            return role in CanManageFunds._WRITE_ROLES
+            
+        # If no valid target is provided, deny. (The view will also validate this).
+        return False
+
+    def has_object_permission(self, request, view, obj):
+        role = _role(request)
+        
+        if obj.employee_id:
+            # Upload/View: SuperAdmin, Pres, VP + the employee themselves for viewing
+            if role in CanManageEmployees._WRITE_ROLES:
+                return True
+            # Allow the linked employee to view their own attachment
+            if request.method in SAFE_METHODS:
+                try:
+                    if request.user.profile.employee_id == obj.employee_id:
+                        return True
+                except AttributeError:
+                    pass
+            return False
+            
+        elif obj.dtr_batch_id:
+            # Upload/View: SuperAdmin, Pres, VP, Secretary
+            return role in CanManageDTR._WRITE_ROLES
+            
+        elif obj.fund_payment_id:
+            # Upload/View: SuperAdmin, Pres, VP, Treasurer
+            return role in CanManageFunds._WRITE_ROLES
+            
+        return False
