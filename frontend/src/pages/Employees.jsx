@@ -8,6 +8,7 @@ import {
   updateServerEmployee,
   deleteServerEmployee,
 } from '../hooks/useSync';
+import FileUpload from '../components/FileUpload';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
@@ -344,6 +345,22 @@ export default function Employees({ isOnline }) {
             </button>
             {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
           </div>
+          
+          {/* File Upload testing block for Employees */}
+          {form.id && (
+            <div style={{ marginTop: 24, padding: '16px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
+              <h4 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '14px' }}>
+                📎 Attach File to this Employee
+              </h4>
+              <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#166534' }}>
+                Upload ID photos or documents directly to Google Drive.
+              </p>
+              <FileUpload 
+                employeeId={form.id} 
+                onUploaded={(data) => alert(`Upload successful! Drive ID: ${data.drive_file_id}`)} 
+              />
+            </div>
+          )}
         </div>
       )}
 

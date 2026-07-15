@@ -2,8 +2,12 @@ from pathlib import Path
 import os
 import dj_database_url
 from datetime import timedelta
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file
+load_dotenv(BASE_DIR / '.env')
 
 # render.yaml injects the key as DJANGO_SECRET_KEY; also accept SECRET_KEY for flexibility.
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or os.environ.get('SECRET_KEY', 'changeme-local-dev-only')

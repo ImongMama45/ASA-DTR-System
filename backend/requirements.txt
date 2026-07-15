@@ -18,3 +18,4 @@ PyJWT==2.10.1
 google-auth==2.*
 google-auth-oauthlib==1.*
 google-api-python-client==2.*
+python-dotenv==1.2.2
