@@ -10,7 +10,7 @@ Entry point: run_sync_if_needed()  ← call this from fund_payment_upsert
 import os
 import logging
 import calendar
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 
 from django.utils import timezone
 
@@ -52,44 +52,29 @@ NEW_HIGHLIGHT_COLOR = {"red": 1.0, "green": 0.949, "blue": 0.4}  # #FFF266-ish
 
 # ── Header triple generation ──────────────────────────────────────────────────
 
-def _build_cutoff_columns(academic_year_start: int):
+def _get_sync_year():
     """
-    Returns an ordered list of (year, month, cutoff, label) tuples covering
-    one academic year: Aug–Dec of academic_year_start, then Jan–Jun of
-    academic_year_start+1.
-
-    label examples: "Aug-31", "Sep-15", "Sep-30", ...
+    Returns the calendar year to sync — always matches the year
+    selector on the Fund Tracker page (the current calendar year).
     """
-    columns = []
-
-    # Aug–Dec → academic_year_start
-    for m in range(7, 12):  # 7=Aug, 8=Sep, …, 11=Dec
-        yr = academic_year_start
-        last_day = calendar.monthrange(yr, m + 1)[1]
-        month_abbr = date(yr, m + 1, 1).strftime("%b")
-        columns.append((yr, m, 1,  f"{month_abbr}-15"))
-        columns.append((yr, m, 16, f"{month_abbr}-{last_day}"))
-
-    # Jan–Jun → academic_year_start + 1
-    for m in range(0, 6):   # 0=Jan, 1=Feb, …, 5=Jun
-        yr = academic_year_start + 1
-        last_day = calendar.monthrange(yr, m + 1)[1]
-        month_abbr = date(yr, m + 1, 1).strftime("%b")
-        columns.append((yr, m, 1,  f"{month_abbr}-15"))
-        columns.append((yr, m, 16, f"{month_abbr}-{last_day}"))
-
-    return columns
+    return date.today().year
 
 
-def _get_academic_year_start():
+def _build_cutoff_columns(sync_year: int):
     """
-    Derive the current academic year's start year from today's date.
-    Aug 1 → next academic year starts.
+    Returns columns for the current year up to today only.
+    Future cutoffs are excluded so the sheet never shows blank advance columns.
     """
     today = date.today()
-    if today.month >= 8:
-        return today.year
-    return today.year - 1
+    columns = []
+    for m in range(0, 12):
+        last_day = calendar.monthrange(sync_year, m + 1)[1]
+        month_abbr = date(sync_year, m + 1, 1).strftime("%b")
+        if date(sync_year, m + 1, 15) <= today:
+            columns.append((sync_year, m, 1, f"{month_abbr}-15"))
+        if date(sync_year, m + 1, last_day) <= today:
+            columns.append((sync_year, m, 16, f"{month_abbr}-{last_day}"))
+    return columns
 
 
 # ── "NEW" highlight rule ──────────────────────────────────────────────────────
@@ -202,8 +187,8 @@ def _build_and_push(state):
     """
     from .models import Employee, FundPayment
 
-    academic_year = _get_academic_year_start()
-    columns = _build_cutoff_columns(academic_year)
+    sync_year = _get_sync_year()
+    columns = _build_cutoff_columns(sync_year)
 
     # ── 1. Pull employees (active first, then archived) ────────────────────
     employees = list(
@@ -211,9 +196,8 @@ def _build_and_push(state):
     )
 
     # ── 2. Pull all relevant FundPayments in one query ─────────────────────
-    years_needed = {academic_year, academic_year + 1}
     payments_qs = FundPayment.objects.filter(
-        year__in=years_needed
+        year=sync_year
     ).select_related("employee")
 
     # Index: (employee_id, year, month, cutoff) → amount
@@ -229,7 +213,7 @@ def _build_and_push(state):
     for emp in employees:
         row = [emp.name]
         for (yr, mo, cutoff, _label) in columns:
-            key = (emp.id, yr, mo, cutoff)
+            key = (emp.id, yr, mo + 1, cutoff)
             amount = payment_map.get(key, 0)
             if not amount or amount == 0 or amount == "0":
                 row.append("")
@@ -245,7 +229,7 @@ def _build_and_push(state):
     ws.update(data_rows, "A1")
 
     # ── 5. Apply formatting ────────────────────────────────────────────────
-    _apply_formatting(ws, employees, columns, academic_year)
+    _apply_formatting(ws, employees, columns, sync_year, payment_map)
 
     logger.info(
         "Sheet sync complete: %d employees, %d columns, sheet ID=%s",
@@ -253,28 +237,78 @@ def _build_and_push(state):
     )
 
 
-def _apply_formatting(ws, employees, columns, academic_year):
+def _apply_formatting(ws, employees, columns, sync_year, payment_map):
     """
-    Applies: frozen header row, bold header, "NEW" yellow highlights.
-    Uses batchUpdate for efficiency (single API call).
+    Colors every data cell to match the Fund Tracker UI exactly:
+      - Green  = Paid (amount >= 20)
+      - Orange = Partial (0 < amount < 20)
+      - Red    = Unpaid (employee was active, cutoff passed, no payment)
+      - Yellow = Not Started / NEW (before start date)
+      - Blue   = Resigned (after end date)
     """
     try:
         import gspread
-        from gspread.utils import rowcol_to_a1
 
         spreadsheet = ws.spreadsheet
         sheet_id = ws.id
+        today = date.today()
+
+        COLOR_PAID     = {"red": 0.133, "green": 0.773, "blue": 0.369}    # #22c55e
+        COLOR_PARTIAL  = {"red": 0.976, "green": 0.451, "blue": 0.086}    # #f97316
+        COLOR_UNPAID   = {"red": 0.937, "green": 0.267, "blue": 0.267}    # #ef4444
+        COLOR_NOT_START= {"red": 0.996, "green": 0.941, "blue": 0.541}    # #fef08a (Yellow)
+        COLOR_RESIGNED = {"red": 0.231, "green": 0.510, "blue": 0.965}    # #3b82f6 (Blue)
+        COLOR_FUTURE   = {"red": 0.973, "green": 0.980, "blue": 0.988}    # #f8fafc (Not Due)
+        COLOR_WHITE    = {"red": 1.0,   "green": 1.0,   "blue": 1.0}      # Future
 
         requests = []
 
-        # Freeze the header row
+        # Clear stale formatting from previous syncs (ws.clear() only clears values, not colors)
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 200,
+                    "startColumnIndex": 0,
+                    "endColumnIndex": 50,
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": COLOR_WHITE
+                    }
+                },
+                "fields": "userEnteredFormat.backgroundColor",
+            }
+        })
+
+        # Freeze the header row and first column
         requests.append({
             "updateSheetProperties": {
                 "properties": {
                     "sheetId": sheet_id,
-                    "gridProperties": {"frozenRowCount": 1},
+                    "gridProperties": {
+                        "frozenRowCount": 1,
+                        "frozenColumnCount": 1
+                    },
                 },
-                "fields": "gridProperties.frozenRowCount",
+                "fields": "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
+            }
+        })
+
+        # Widen the Employee Name column
+        requests.append({
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 0,
+                    "endIndex": 1
+                },
+                "properties": {
+                    "pixelSize": 280
+                },
+                "fields": "pixelSize"
             }
         })
 
@@ -295,33 +329,62 @@ def _apply_formatting(ws, employees, columns, academic_year):
             }
         })
 
-        # "NEW" highlight: yellow on the first eligible cutoff per employee
-        for row_idx, emp in enumerate(employees, start=1):  # row 0 = header
+        # Color each data cell
+        for row_idx, emp in enumerate(employees, start=1):
             for col_idx, (yr, mo, cutoff, _label) in enumerate(columns, start=1):
-                if _is_new_cell(emp, yr, mo, cutoff):
-                    requests.append({
-                        "repeatCell": {
-                            "range": {
-                                "sheetId": sheet_id,
-                                "startRowIndex": row_idx,
-                                "endRowIndex": row_idx + 1,
-                                "startColumnIndex": col_idx,
-                                "endColumnIndex": col_idx + 1,
-                            },
-                            "cell": {
-                                "userEnteredFormat": {
-                                    "backgroundColor": NEW_HIGHLIGHT_COLOR
-                                }
-                            },
-                            "fields": "userEnteredFormat.backgroundColor",
-                        }
-                    })
+                key = (emp.id, yr, mo + 1, cutoff)
+                amount = float(payment_map.get(key, 0) or 0)
+
+                # Determine cutoff boundaries (Start and End of this cutoff)
+                cutoff_start_day = 1 if cutoff == 1 else 16
+                cutoff_start = date(yr, mo + 1, cutoff_start_day)
+                if cutoff == 1:
+                    cutoff_end = date(yr, mo + 1, 15)
+                else:
+                    last_day = calendar.monthrange(yr, mo + 1)[1]
+                    cutoff_end = date(yr, mo + 1, last_day)
+
+                emp_start = getattr(emp, 'start_date', None)
+                emp_end = getattr(emp, 'end_date', None)
+
+                # 1. After Resignation?
+                if emp_end and emp_end < cutoff_start:
+                    bg_color = COLOR_RESIGNED
+                # 2. Before Start Date?
+                elif emp_start and emp_start > cutoff_end:
+                    bg_color = COLOR_NOT_START
+                # 3. Active Cutoffs
+                elif amount >= 20:
+                    bg_color = COLOR_PAID
+                elif amount > 0:
+                    bg_color = COLOR_PARTIAL
+                elif (cutoff_end + timedelta(days=15)) > today:
+                    bg_color = COLOR_FUTURE
+                else:
+                    bg_color = COLOR_UNPAID
+
+                requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": row_idx,
+                            "endRowIndex": row_idx + 1,
+                            "startColumnIndex": col_idx,
+                            "endColumnIndex": col_idx + 1,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": bg_color
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor",
+                    }
+                })
 
         if requests:
             spreadsheet.batch_update({"requests": requests})
 
     except Exception as exc:
-        # Formatting is cosmetic — log but don't fail the sync over it
         logger.warning("Formatting step failed (non-fatal): %s", exc)
 
 

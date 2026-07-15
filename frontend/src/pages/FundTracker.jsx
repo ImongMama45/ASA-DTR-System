@@ -183,11 +183,11 @@ export default function FundTracker({ isOnline }) {
     if (val >= 20) return 'paid';
     if (val > 0) return 'incomplete';
     const cutoffDate = getCutoffDate(year, monthIndex, cutoffType);
-    
+
     // Add 15 days of grace period so a cutoff isn't instantly red the day after it ends
     const graceDate = new Date(cutoffDate);
     graceDate.setDate(graceDate.getDate() + 15);
-    
+
     const now = new Date(); now.setHours(0, 0, 0, 0);
     if (graceDate > now) return 'future';
     return 'unpaid';
@@ -380,7 +380,7 @@ export default function FundTracker({ isOnline }) {
                 <th style={{ position: 'sticky', top: 0, left: 0, zIndex: 3, background: '#f8fafc', padding: isNameCollapsed ? '12px 6px' : '12px 14px', minWidth: isNameCollapsed ? 70 : 180, maxWidth: isNameCollapsed ? 70 : 180, textAlign: 'left', borderRight: '1px solid #e2e8f0', boxShadow: '4px 0 8px rgba(0,0,0,0.05)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     {!isNameCollapsed && <span>SA Name</span>}
-                    <button 
+                    <button
                       onClick={() => setIsNameCollapsed(!isNameCollapsed)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', borderRadius: 4 }}
                       title={isNameCollapsed ? "Expand Name Column" : "Collapse Name Column"}
@@ -391,12 +391,15 @@ export default function FundTracker({ isOnline }) {
                 </th>
                 <th style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', textAlign: 'center', padding: '12px' }}>Paid</th>
                 <th style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', textAlign: 'center', padding: '12px' }}>Unpaid</th>
-                {MONTH_NAMES.map((m, i) => (
-                  <React.Fragment key={i}>
-                    <th style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', textAlign: 'center', padding: '8px 4px' }}>{m.slice(0, 3)} (1-15)</th>
-                    <th style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', textAlign: 'center', padding: '8px 4px' }}>{m.slice(0, 3)} (16+)</th>
-                  </React.Fragment>
-                ))}
+                {MONTH_NAMES.map((m, i) => {
+                  const lastDay = new Date(year, i + 1, 0).getDate();
+                  return (
+                    <React.Fragment key={i}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', textAlign: 'center', padding: '8px 4px' }}>{m.slice(0, 3)}-15</th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc', textAlign: 'center', padding: '8px 4px' }}>{m.slice(0, 3)}-{lastDay}</th>
+                    </React.Fragment>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
