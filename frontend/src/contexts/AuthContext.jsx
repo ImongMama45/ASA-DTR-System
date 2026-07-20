@@ -112,6 +112,7 @@ export function AuthProvider({ children }) {
     loading,
     login,
     logout,
+    fetchMe,
     authFetch,
     // Role helpers
     isSuperAdmin: user?.role === 'SuperAdmin',

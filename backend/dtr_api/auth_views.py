@@ -24,19 +24,35 @@ def _profile_data(user):
         return {
             'id': user.id,
             'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
             'role': profile.role,
             'employee_id': emp.id if emp else None,
             'employee_name': emp.name if emp else user.username,
+            'local_id': emp.local_id if emp else None,
+            'office': emp.office if emp else None,
+            'duty': emp.duty if emp else None,
+            'start_date': emp.start_date.isoformat() if emp and emp.start_date else None,
             'has_usable_password': user.has_usable_password(),
+            'profile_pic': profile.profile_pic,
         }
     except UserProfile.DoesNotExist:
         return {
             'id': user.id,
             'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
             'role': 'Member',
             'employee_id': None,
             'employee_name': user.username,
+            'local_id': None,
+            'office': None,
+            'duty': None,
+            'start_date': None,
             'has_usable_password': user.has_usable_password(),
+            'profile_pic': None,
         }
 
 
@@ -156,6 +172,14 @@ def change_password_view(request):
 
     user.set_password(new_password)
     user.save()
+
+    # Update session auth hash to keep user logged in if they used session auth
+    # (Though we use JWT, this is good practice in Django)
+    from django.contrib.auth import update_session_auth_hash
+    update_session_auth_hash(request, user)
+    
+    from .models import ActivityLog
+    ActivityLog.objects.create(user=user, action="Changed Password", description="User successfully changed their password.")
 
     # Issue fresh tokens so the user doesn't get logged out
     refresh = RefreshToken.for_user(user)
@@ -369,4 +393,95 @@ def toggle_active_view(request, user_id):
 
     action = 'activated' if is_active else 'deactivated'
     return Response({'message': f"User '{target_user.username}' has been {action}."})
+
+# ─── Settings Endpoints ────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_profile_pic(request):
+    """Upload profile picture to Cloudinary and save secure URL."""
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    profile_pic = request.data.get('profile_pic')
+    if profile_pic:
+        import cloudinary.uploader
+        try:
+            # The base64 string can be directly passed to Cloudinary
+            response = cloudinary.uploader.upload(profile_pic, folder="dtr_avatars")
+            secure_url = response.get('secure_url')
+            
+            profile.profile_pic = secure_url
+            profile.save()
+            from .models import ActivityLog
+            ActivityLog.objects.create(user=request.user, action="Updated Profile Picture", description="User updated their profile picture.")
+            return Response({'message': 'Profile picture updated successfully.', 'url': secure_url})
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Cloudinary upload failed: {e}")
+            return Response({'error': 'Failed to upload image. Please try again later.'}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({'error': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_activity_logs(request):
+    """Get the user's activity logs."""
+    from .models import ActivityLog
+    logs = ActivityLog.objects.filter(user=request.user)[:50]
+    data = [{'id': l.id, 'action': l.action, 'description': l.description, 'created_at': l.created_at} for l in logs]
+    return Response(data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_office_colleagues(request):
+    """Get SA with the same office as theirs."""
+    try:
+        profile = request.user.profile
+        emp = profile.employee
+    except UserProfile.DoesNotExist:
+        return Response([])
+
+    if not emp or not emp.office:
+        return Response([])
+    
+    colleagues = Employee.objects.filter(office=emp.office, is_active=True).exclude(id=emp.id)
+    data = [{'id': c.id, 'name': c.name, 'duty': c.duty, 'office': c.office} for c in colleagues]
+    return Response(data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_profile_info(request):
+    """Update user email and employee name (First Name, Last Name)."""
+    user = request.user
+    first_name = request.data.get('first_name', '').strip()
+    last_name = request.data.get('last_name', '').strip()
+    email = request.data.get('email', '').strip()
+    username = request.data.get('username', '').strip()
+
+    if username and username != user.username:
+        if User.objects.filter(username__iexact=username).exclude(id=user.id).exists():
+            return Response({'error': 'That username is already taken.'}, status=400)
+        user.username = username
+
+    if email:
+        user.email = email
+        
+    if first_name:
+        user.first_name = first_name
+    if last_name:
+        user.last_name = last_name
+        
+    user.save()
+
+    try:
+        emp = user.profile.employee
+        if emp and (first_name or last_name):
+            # Maintain "LastName, FirstName" format for Employee name
+            emp.name = f"{last_name}, {first_name}".strip(", ")
+            emp.save()
+    except UserProfile.DoesNotExist:
+        pass
+    
+    from .models import ActivityLog
+    ActivityLog.objects.create(user=user, action="Updated Profile Information", description="User updated their personal details.")
+    
+    return Response({'message': 'Profile updated successfully.'})
 

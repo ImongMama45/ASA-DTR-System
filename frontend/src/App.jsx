@@ -8,8 +8,9 @@ import Generator from './pages/Generator';
 import Review from './pages/Review';
 import FundTracker from './pages/FundTracker';
 import UserManagement from './pages/UserManagement';
+import UserSettings from './pages/Settings';
 import { useSync } from './hooks/useSync';
-import { LayoutDashboard, Home, Users, Settings, Printer, Wallet, ShieldAlert, GraduationCap } from 'lucide-react';
+import { LayoutDashboard, Home, Users, Settings as SettingsIcon, Printer, Wallet, ShieldAlert, GraduationCap, UserCircle } from 'lucide-react';
 import './App.css';
 
 // ─── Inner app — only rendered when authenticated ─────────────────────────────
@@ -33,7 +34,7 @@ function AuthenticatedApp() {
     { id: 'employees',    label: <><Users size={16} /> Employees</> },
     ...(canCreateDTR
       ? [
-          { id: 'generator', label: <><Settings size={16} /> Generate DTR</> },
+          { id: 'generator', label: <><SettingsIcon size={16} /> Generate DTR</> },
           { id: 'review',    label: <><Printer size={16} /> Review & Export</> },
         ]
       : []),
@@ -41,6 +42,7 @@ function AuthenticatedApp() {
     ...(isSuperAdmin
       ? [{ id: 'users', label: <><ShieldAlert size={16} /> User Management</> }]
       : []),
+    { id: 'settings', label: <><UserCircle size={16} /> User Settings</> },
   ];
 
   return (
@@ -112,6 +114,7 @@ function AuthenticatedApp() {
         {page === 'generator'    && canCreateDTR && <Generator isOnline={isOnline} onDone={() => setPage('review')} />}
         {page === 'review'       && canCreateDTR && <Review isOnline={isOnline} />}
         {page === 'funds'                       && <FundTracker isOnline={isOnline} />}
+        {page === 'settings'                    && <UserSettings />}
         {page === 'users'        && isSuperAdmin  && <UserManagement />}
       </main>
     </div>

@@ -8,5 +8,7 @@ from .models import UserProfile
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     """Auto-create a UserProfile (role=Member, no employee link) whenever a new User is saved."""
+    if kwargs.get('raw'):
+        return
     if created:
         UserProfile.objects.get_or_create(user=instance)

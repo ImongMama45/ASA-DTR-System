@@ -13,6 +13,8 @@ from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from googleapiclient.errors import HttpError
 from . import drive_client
+from . import supabase_client
+from django.http import HttpResponseRedirect
 from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState, Attachment
 from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer, AttachmentSerializer
 from . import sheets_sync
@@ -343,13 +345,13 @@ def attachment_upload(request):
         return Response({'error': 'File too large.'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        drive_file_id = drive_client.upload_file(f, f.name, f.content_type)
-    except HttpError as e:
-        logger.error("Drive upload failed: %s", e)
+        supabase_file_path = supabase_client.upload_file(f.read(), f.name)
+    except Exception as e:
+        logger.error("Supabase upload failed: %s", e)
         return Response({'error': 'Upload to storage failed. Please try again.'}, status=status.HTTP_502_BAD_GATEWAY)
 
     attachment = Attachment.objects.create(
-        drive_file_id=drive_file_id,
+        supabase_file_path=supabase_file_path,
         original_filename=f.name,
         mime_type=f.content_type,
         uploaded_by=request.user,
@@ -372,12 +374,23 @@ def attachment_download(request, attachment_id):
     if not CanAccessAttachment().has_object_permission(request, attachment_download, attachment):
         return Response({'error': 'You do not have permission to view this attachment.'}, status=status.HTTP_403_FORBIDDEN)
 
+    # Legacy Google Drive fallback
+    if attachment.drive_file_id and not attachment.supabase_file_path:
+        try:
+            content, mime_type = drive_client.download_file(attachment.drive_file_id)
+        except HttpError as e:
+            logger.error("Drive download failed for attachment %s: %s", attachment_id, e)
+            return Response({'error': 'File could not be retrieved.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        response = HttpResponse(content, content_type=mime_type)
+        response['Content-Disposition'] = f'inline; filename="{attachment.original_filename}"'
+        return response
+
+    # Supabase signed URL redirect
     try:
-        content, mime_type = drive_client.download_file(attachment.drive_file_id)
-    except HttpError as e:
-        logger.error("Drive download failed for attachment %s: %s", attachment_id, e)
+        url = supabase_client.get_signed_url(attachment.supabase_file_path, expires_in=600)
+    except Exception as e:
+        logger.error("Supabase download failed for attachment %s: %s", attachment_id, e)
         return Response({'error': 'File could not be retrieved.'}, status=status.HTTP_502_BAD_GATEWAY)
 
-    response = HttpResponse(content, content_type=mime_type)
-    response['Content-Disposition'] = f'inline; filename="{attachment.original_filename}"'
-    return response
+    return HttpResponseRedirect(url)

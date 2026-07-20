@@ -29,6 +29,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'dtr_api',
+    'cloudinary_storage',
+    'cloudinary',
 ]
 
 MIDDLEWARE = [
@@ -127,3 +129,8 @@ SIMPLE_JWT = {
 }
 
 CSRF_TRUSTED_ORIGINS = ["https://asa-dtr-system.onrender.com", "https://ASABackendPo.pythonanywhere.com", "https://asabackendpo.pythonanywhere.com", "https://asa-dtr-system-n8oxoukm3-imongmama45s-projects.vercel.app"]
+
+# Cloudinary Configuration
+# The django-cloudinary-storage library automatically reads the CLOUDINARY_URL
+# environment variable injected by dotenv/Render, so no explicit dict is needed here.
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'

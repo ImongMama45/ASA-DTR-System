@@ -22,6 +22,13 @@ urlpatterns = [
     path('auth/change-password/', auth_views.change_password_view, name='auth-change-password'),
     path('auth/set-password/<int:user_id>/', auth_views.set_password_view, name='auth-set-password'),
     path('auth/logout/', auth_views.logout_view, name='auth-logout'),
+    
+    # ── Settings ────────────────────────────────────────────────────────
+    path('settings/profile-pic/', auth_views.update_profile_pic, name='settings-profile-pic'),
+    path('settings/activity-logs/', auth_views.get_activity_logs, name='settings-activity-logs'),
+    path('settings/colleagues/', auth_views.get_office_colleagues, name='settings-colleagues'),
+    path('settings/update-profile-info/', auth_views.update_profile_info, name='settings-update-profile-info'),
+
     # ── User management (SuperAdmin only) ───────────────────────────────────
     path('auth/users/', auth_views.users_list_view, name='auth-users-list'),
     path('auth/users/create/', auth_views.create_user_view, name='auth-users-create'),

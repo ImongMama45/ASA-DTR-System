@@ -54,10 +54,24 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     employee = models.OneToOneField(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Member')
+    profile_pic = models.URLField(max_length=500, blank=True, null=True)  # Cloudinary URL
 
     def __str__(self):
         return f"{self.user.username} - {self.role}"
 
+
+class ActivityLog(models.Model):
+    """Tracks user actions for history display in Settings."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activity_logs')
+    action = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.action} at {self.created_at}"
 
 class DTRBatch(models.Model):
     label = models.CharField(max_length=100)
@@ -154,7 +168,8 @@ class SheetsSyncState(models.Model):
 
 class Attachment(models.Model):
     """A file (PDF or image) stored in Google Drive, referenced by Django."""
-    drive_file_id = models.CharField(max_length=200, unique=True)
+    drive_file_id = models.CharField(max_length=200, unique=True, null=True, blank=True)
+    supabase_file_path = models.CharField(max_length=500, null=True, blank=True)
     original_filename = models.CharField(max_length=255)
     mime_type = models.CharField(max_length=100)
     uploaded_at = models.DateTimeField(auto_now_add=True)

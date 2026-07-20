@@ -20,3 +20,5 @@ google-auth-oauthlib==1.*
 google-api-python-client==2.*
 python-dotenv==1.2.2
 gspread==6.1.2
+cloudinary==1.44.2
+django-cloudinary-storage==0.3.0

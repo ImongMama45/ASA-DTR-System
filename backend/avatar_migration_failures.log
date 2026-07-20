@@ -1,0 +1,14 @@
+Failed to migrate admin2 (ID: 39): Must supply api_key
+Traceback (most recent call last):
+  File "D:\Coding\DTR - New\dtr-system - Copy\backend\dtr_api\management\commands\migrate_avatars_to_cloudinary.py", line 35, in handle
+    response = cloudinary.uploader.upload(profile.profile_pic, folder="dtr_avatars")
+  File "C:\Users\USER\AppData\Roaming\Python\Python313\site-packages\cloudinary\uploader.py", line 198, in upload
+    return call_cacheable_api("upload", params, file=file, **options)
+  File "C:\Users\USER\AppData\Roaming\Python\Python313\site-packages\cloudinary\uploader.py", line 834, in call_cacheable_api
+    result = call_api(action, params, http_headers, return_error, unsigned, file, timeout, **options)
+  File "C:\Users\USER\AppData\Roaming\Python\Python313\site-packages\cloudinary\uploader.py", line 882, in call_api
+    params = utils.sign_request(params, options)
+  File "C:\Users\USER\AppData\Roaming\Python\Python313\site-packages\cloudinary\utils.py", line 619, in sign_request
+    raise ValueError("Must supply api_key")
+ValueError: Must supply api_key
+
