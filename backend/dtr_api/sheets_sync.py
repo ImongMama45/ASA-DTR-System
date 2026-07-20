@@ -31,7 +31,9 @@ SHEET_TITLE = "SA Fund Tracker — System Mirror"
 TAB_NAME = "Fund Tracker"
 
 # Path to credentials JSON.  Set GOOGLE_SHEETS_CREDENTIALS_PATH in the
-# PythonAnywhere environment variables (WSGI config or .env).
+# environment variables (WSGI config or .env).
+# On ephemeral filesystems (e.g. Render), set GOOGLE_SHEETS_CREDENTIALS_JSON
+# to the full JSON content of the service account file instead.
 CREDENTIALS_PATH = os.environ.get(
     "GOOGLE_SHEETS_CREDENTIALS_PATH",
     # Local fallback — update this path on your machine if testing locally.
@@ -135,7 +137,15 @@ def _get_gspread_client():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=scopes)
+
+    # Prefer inline JSON credentials (required on ephemeral hosts like Render)
+    credentials_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS_JSON")
+    if credentials_json:
+        import json
+        info = json.loads(credentials_json)
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
+    else:
+        creds = Credentials.from_service_account_file(CREDENTIALS_PATH, scopes=scopes)
     return gspread.authorize(creds)
 
 
