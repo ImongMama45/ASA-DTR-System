@@ -109,12 +109,16 @@ export default function MemberDashboard({ isOnline }) {
       }}>
         <div style={{
           width: 64, height: 64, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+          background: user?.profile_pic ? '#fff' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 24, fontWeight: 800, color: '#fff', flexShrink: 0,
-          boxShadow: '0 4px 14px rgba(99,102,241,0.4)',
+          boxShadow: '0 4px 14px rgba(99,102,241,0.4)', overflow: 'hidden'
         }}>
-          {initials}
+          {user?.profile_pic ? (
+            <img src={user.profile_pic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            initials
+          )}
         </div>
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9' }}>

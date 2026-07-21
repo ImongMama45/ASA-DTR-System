@@ -23,9 +23,13 @@ async function apiFetch(endpoint, options = {}) {
     const error = await res.json().catch(() => ({}));
     throw new Error(error.error || error.detail || 'API Request failed');
   }
+  return res.json().catch(() => null);
 }
 export default function UserSettings() {
   const { user, fetchMe } = useAuth();
+  // activeTab now ONLY controls the inline password form ('profile' | 'security').
+  // It used to also drive the Activity Logs section and the colleagues fetch,
+  // which caused the logs to silently never load — see logsTab below.
   const [activeTab, setActiveTab] = useState('profile');
   const [toast, setToast] = useState({ isOpen: false, type: 'success', message: '' });
 
@@ -60,7 +64,8 @@ export default function UserSettings() {
   // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: '', title: '', message: '' });
 
-  // Activity logs state
+  // Activity Logs section — its own state, independent of the password-form tab.
+  const [logsTab, setLogsTab] = useState('activity'); // 'activity' | 'attendance'
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
 
@@ -68,22 +73,22 @@ export default function UserSettings() {
   const [colleagues, setColleagues] = useState([]);
   const [loadingColleagues, setLoadingColleagues] = useState(false);
 
+  // Load both, unconditionally, the same way Dashboard.jsx loads its stats —
+  // straight in a mount-time useEffect, no tab or click required.
   useEffect(() => {
-    if (activeTab === 'activity' && logs?.length === 0) {
-      fetchLogs();
-    }
-    if (activeTab === 'colleagues' && colleagues?.length === 0) {
-      fetchColleagues();
-    }
-  }, [activeTab]);
+    fetchLogs();
+    fetchColleagues();
+  }, []);
 
   const fetchLogs = async () => {
     setLoadingLogs(true);
     try {
       const data = await apiFetch('/settings/activity-logs/');
-      setLogs(data || []);
+      console.log('[UserSettings] /settings/activity-logs/ response:', data);
+      // Handles both a plain array and a DRF paginated {results: [...]} shape
+      setLogs(Array.isArray(data) ? data : (data?.results || []));
     } catch (e) {
-      console.error(e);
+      console.error('[UserSettings] fetchLogs failed:', e);
       setLogs([]);
     }
     setLoadingLogs(false);
@@ -478,7 +483,7 @@ export default function UserSettings() {
                 borderRadius: 6, padding: '10px 16px', fontSize: 13, fontWeight: 600,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer'
               }}
-              onClick={() => setActiveTab('security')} // You can implement a modal or simple swap here
+              onClick={() => setActiveTab('security')}
             >
               <Key size={16} /> Update Password
             </button>
@@ -527,18 +532,18 @@ export default function UserSettings() {
         <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>Activity Logs</h3>
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <button style={{
-            background: activeTab !== 'attendance' ? '#e2e8f0' : 'transparent', color: activeTab !== 'attendance' ? '#475569' : '#94a3b8',
+            background: logsTab === 'activity' ? '#e2e8f0' : 'transparent', color: logsTab === 'activity' ? '#475569' : '#94a3b8',
             border: 'none', padding: '6px 16px', borderRadius: 16, fontSize: 13, fontWeight: 600, cursor: 'pointer'
-          }} onClick={() => setActiveTab('activity')}>Activity</button>
+          }} onClick={() => setLogsTab('activity')}>Activity</button>
 
           <button style={{
-            background: activeTab === 'attendance' ? '#e2e8f0' : 'transparent', color: activeTab === 'attendance' ? '#475569' : '#94a3b8',
+            background: logsTab === 'attendance' ? '#e2e8f0' : 'transparent', color: logsTab === 'attendance' ? '#475569' : '#94a3b8',
             border: 'none', padding: '6px 16px', borderRadius: 16, fontSize: 13, fontWeight: 600, cursor: 'pointer'
-          }} onClick={() => setActiveTab('attendance')}>Attendance</button>
+          }} onClick={() => setLogsTab('attendance')}>Attendance</button>
         </div>
 
         <div style={{ background: '#f8fafc', borderRadius: 8, padding: 32, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
-          {activeTab === 'attendance' ? (
+          {logsTab === 'attendance' ? (
             "No attendance recorded yet."
           ) : (
             loadingLogs ? 'Loading...' : logs?.length === 0 ? 'No activity recorded yet.' : (
@@ -557,5 +562,3 @@ export default function UserSettings() {
     </div>
   );
 }
-
-

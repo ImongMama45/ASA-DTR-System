@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 import json
+from django.core.validators import MinValueValidator
+from decimal import Decimal
 
 
 class Employee(models.Model):
@@ -195,3 +197,59 @@ class Attachment(models.Model):
 
     def __str__(self):
         return self.original_filename
+
+class TreasuryTransaction(models.Model):
+    """
+    Append-only ledger for treasury deposits/withdrawals, separate from
+    per-employee FundPayment contributions. Intentionally has no update
+    or delete path in the API - this is a financial audit trail and
+    entries must not be alterable after the fact.
+    """
+
+    class TransactionType(models.TextChoices):
+        DEPOSIT = 'DEPOSIT', 'Deposit'
+        WITHDRAWAL = 'WITHDRAWAL', 'Withdrawal'
+        FUND_EDIT_ADD = 'FUND_EDIT_ADD', 'Fund Edit (Add)'
+        FUND_EDIT_SUB = 'FUND_EDIT_SUB', 'Fund Edit (Subtract)'
+
+    transaction_type = models.CharField(max_length=15, choices=TransactionType.choices)
+    amount = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))]
+    )
+    description = models.TextField()
+
+    # Auto-generated: dep_20260721101530#12 / with_20260721101530#13
+    transaction_id = models.CharField(max_length=50, unique=True, blank=True, editable=False)
+
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='treasury_transactions')
+    # Snapshots taken at creation time so the log stays historically accurate
+    # even if the user's name changes or their role is later updated.
+    recorded_by_name = models.CharField(max_length=200, blank=True)
+    recorded_by_role = models.CharField(max_length=20, blank=True)
+    running_balance = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('0.00'),
+        help_text="Snapshot of the total budget AFTER this transaction was applied."
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.transaction_id:
+            if self.transaction_type == self.TransactionType.DEPOSIT:
+                prefix = 'dep'
+            elif self.transaction_type == self.TransactionType.WITHDRAWAL:
+                prefix = 'with'
+            else:
+                prefix = 'fd'
+            timestamp = self.created_at.strftime('%Y%m%d%H%M%S')
+            self.transaction_id = f"{prefix}_{timestamp}#{self.pk}"
+            super().save(update_fields=['transaction_id'])
+
+    def __str__(self):
+        return f"{self.transaction_id} - PHP {self.amount}"

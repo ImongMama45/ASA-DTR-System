@@ -6,6 +6,7 @@ from . import auth_views
 router = DefaultRouter()
 router.register(r'employees', views.EmployeeViewSet, basename='employee')
 router.register(r'batches', views.DTRBatchViewSet)
+router.register(r'treasury/transactions', views.TreasuryTransactionViewSet, basename='treasury-transaction')
 
 urlpatterns = [
     path('', include(router.urls)),
@@ -15,6 +16,7 @@ urlpatterns = [
     path('fund-payments/upsert/', views.fund_payment_upsert, name='fund-payment-upsert'),
     path('sheets-sync-now/', views.sheets_sync_now, name='sheets-sync-now'),
     path('sheets-sync-status/', views.sheets_sync_status, name='sheets-sync-status'),
+    path('treasury/summary/', views.treasury_summary, name='treasury-summary'),
     # ── Auth endpoints ──────────────────────────────────────────────────────
     path('auth/login/', auth_views.login_view, name='auth-login'),
     path('auth/token/refresh/', auth_views.token_refresh_view, name='auth-token-refresh'),

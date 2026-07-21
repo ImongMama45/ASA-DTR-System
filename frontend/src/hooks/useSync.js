@@ -41,7 +41,14 @@ export async function createServerEmployee(emp) {
   return apiFetch('/employees/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: emp.name, duty: emp.duty, office: emp.office || null, start_date: emp.start || null }),
+    body: JSON.stringify({ 
+      name: emp.name, 
+      duty: emp.duty, 
+      office: emp.office || null, 
+      start_date: emp.start || null,
+      replaced_employee_id: emp.replacedEmployeeId || null,
+      replaced_local_id: emp.replacedLocalId || null
+    }),
   });
 }
 

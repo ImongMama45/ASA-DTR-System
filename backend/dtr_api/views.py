@@ -15,11 +15,64 @@ from googleapiclient.errors import HttpError
 from . import drive_client
 from . import supabase_client
 from django.http import HttpResponseRedirect
-from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState, Attachment
-from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer, AttachmentSerializer
+from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState, Attachment, TreasuryTransaction
+from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer, AttachmentSerializer, TreasuryTransactionSerializer
 from . import sheets_sync
 from .permissions import IsSuperAdmin, CanManageEmployees, CanManageDTR, CanManageFunds, CanAccessAttachment
+from rest_framework.exceptions import NotFound, ValidationError
+from django.db import transaction
+from .models import ActivityLog
 
+def perform_employee_swap(request_data, replaced_id, replaced_local_id, user):
+    with transaction.atomic():
+        old_employee = None
+        if replaced_id:
+            old_employee = Employee.objects.select_for_update().filter(id=replaced_id).first()
+        if not old_employee and replaced_local_id:
+            old_employee = Employee.objects.select_for_update().filter(local_id=replaced_local_id).first()
+
+        if old_employee is None:
+            raise NotFound("Employee to be replaced was not found.")
+        if not old_employee.is_active:
+            raise ValidationError({"replaced_employee_id": "Employee is already archived or replaced."})
+
+        old_employee.is_active = False
+        old_employee.end_date = timezone.now().date()
+        
+        if hasattr(old_employee, 'user_profile') and old_employee.user_profile.user:
+            old_employee.user_profile.user.is_active = False
+            old_employee.user_profile.user.save()
+        old_employee.save()
+
+        data = {
+            **request_data,
+            'duty': old_employee.duty,
+            'office': old_employee.office,
+            'start_date': timezone.now().date()
+        }
+        serializer = EmployeeSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        new_employee = serializer.save()
+
+        if hasattr(old_employee, 'user_profile') and old_employee.user_profile.user:
+            ActivityLog.objects.create(
+                user=old_employee.user_profile.user,
+                action="Employee Replaced",
+                description=f"Account archived and replaced by {new_employee.name}."
+            )
+
+    from .models import SheetsSyncState
+    from . import sheets_sync
+    SheetsSyncState.mark_dirty()
+    try:
+        sheets_sync.run_sync_if_needed()
+    except Exception as exc:
+        logger.warning("Inline sheet sync failed (non-fatal): %s", exc)
+
+    return Response({
+        "new_employee": EmployeeSerializer(new_employee).data,
+        "replaced_employee": EmployeeSerializer(old_employee).data
+    }, status=status.HTTP_201_CREATED)
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
@@ -37,6 +90,13 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if self.action in ('create', 'update', 'partial_update', 'destroy'):
             return [CanManageEmployees()]
         return [IsAuthenticated()]
+
+    def create(self, request, *args, **kwargs):
+        replaced_id = request.data.pop('replaced_employee_id', None)
+        replaced_local_id = request.data.pop('replaced_local_id', None)
+        if replaced_id or replaced_local_id:
+            return perform_employee_swap(request.data, replaced_id, replaced_local_id, request.user)
+        return super().create(request, *args, **kwargs)
 
     def get_queryset(self):
         qs = Employee.objects.all()
@@ -164,6 +224,33 @@ def fund_payment_upsert(request):
     except Exception as exc:
         logger.warning("Inline sheet sync failed (non-fatal): %s", exc)
 
+    # Log to ActivityLog for the affected user
+    try:
+        from .models import ActivityLog, UserProfile
+        profile = UserProfile.objects.filter(employee=emp).select_related('user').first()
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        m_name = month_names[int(month) - 1] if 1 <= int(month) <= 12 else str(month)
+        c_name = '15' if int(cutoff) == 1 else '31'
+        recorded_by = request.user.username
+
+        # Log for the employee whose funds were changed
+        if profile and profile.user:
+            desc = f"Payment set to PHP {float(amount):.2f} for {m_name} {c_name} (Edited by {recorded_by})"
+            ActivityLog.objects.create(
+                user=profile.user,
+                action="Fund Payment Updated",
+                description=desc
+            )
+        
+        # Log for the admin who performed the change
+        ActivityLog.objects.create(
+            user=request.user,
+            action="Edited Fund Payment",
+            description=f"You updated a fund payment for {emp.name} ({m_name} {c_name})."
+        )
+    except Exception as e:
+        logger.error(f"Failed to create ActivityLog in upsert: {e}")
+
     return Response(FundPaymentSerializer(obj).data, status=status.HTTP_200_OK)
 
 
@@ -177,7 +264,7 @@ def sync_view(request):
     role = getattr(getattr(request.user, 'profile', None), 'role', None)
 
     # Action-level authorization — mirrors the permission matrix
-    WRITE_ACTIONS_EMPLOYEE = {'CREATE_EMPLOYEE', 'UPDATE_EMPLOYEE', 'ARCHIVE_EMPLOYEE', 'RESTORE_EMPLOYEE'}
+    WRITE_ACTIONS_EMPLOYEE = {'CREATE_EMPLOYEE', 'UPDATE_EMPLOYEE', 'ARCHIVE_EMPLOYEE', 'RESTORE_EMPLOYEE', 'REPLACE_EMPLOYEE'}
     DELETE_ACTIONS = {'DELETE_EMPLOYEE'}
     DTR_ACTIONS = {'CREATE_BATCH', 'UPDATE_BATCH'}
     FUND_ACTIONS = {'UPSERT_FUND_PAYMENT'}
@@ -232,6 +319,10 @@ def sync_view(request):
                 if hasattr(emp, 'user_profile') and emp.user_profile.user:
                     emp.user_profile.user.is_active = True
                     emp.user_profile.user.save()
+        elif action == 'REPLACE_EMPLOYEE':
+            replaced_id = payload.get('replaced_employee_id', None)
+            replaced_local_id = payload.get('replaced_local_id', None)
+            perform_employee_swap(payload, replaced_id, replaced_local_id, request.user)
         elif action == 'DELETE_EMPLOYEE':
             Employee.objects.filter(local_id=str(payload.get('id', ''))).delete()
         elif action == 'UPSERT_FUND_PAYMENT':
@@ -394,3 +485,114 @@ def attachment_download(request, attachment_id):
         return Response({'error': 'File could not be retrieved.'}, status=status.HTTP_502_BAD_GATEWAY)
 
     return HttpResponseRedirect(url)
+
+
+from decimal import Decimal
+from django.db.models import Sum
+from rest_framework import mixins
+from rest_framework.exceptions import ValidationError
+
+def _current_total_budget():
+    contributions = FundPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    deposits = TreasuryTransaction.objects.filter(
+        transaction_type=TreasuryTransaction.TransactionType.DEPOSIT
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    withdrawals = TreasuryTransaction.objects.filter(
+        transaction_type=TreasuryTransaction.TransactionType.WITHDRAWAL
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    fund_edit_adds = TreasuryTransaction.objects.filter(
+        transaction_type=TreasuryTransaction.TransactionType.FUND_EDIT_ADD
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    fund_edit_subs = TreasuryTransaction.objects.filter(
+        transaction_type=TreasuryTransaction.TransactionType.FUND_EDIT_SUB
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    return contributions + deposits - withdrawals + fund_edit_adds - fund_edit_subs
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def treasury_summary(request):
+    """GET /api/treasury/summary/ — readable by all authenticated users."""
+    return Response({'total_budget': str(_current_total_budget())})
+
+
+class TreasuryTransactionViewSet(mixins.ListModelMixin,
+                                  mixins.RetrieveModelMixin,
+                                  mixins.CreateModelMixin,
+                                  mixins.DestroyModelMixin,
+                                  viewsets.GenericViewSet):
+    """
+    List/retrieve open to everyone authenticated (the public-to-org ledger view).
+    Create/Destroy restricted to CanManageFunds.
+    """
+    queryset = TreasuryTransaction.objects.all()
+    serializer_class = TreasuryTransactionSerializer
+
+    def get_permissions(self):
+        if self.action in ['create', 'destroy']:
+            return [CanManageFunds()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        profile = getattr(user, 'profile', None)
+        emp = getattr(profile, 'employee', None)
+        recorded_by_name = (emp.name if emp else None) or user.username
+        recorded_by_role = getattr(profile, 'role', 'Member')
+
+        transaction_type = serializer.validated_data['transaction_type']
+        amount = serializer.validated_data['amount']
+
+        current_total = _current_total_budget()
+        
+        if transaction_type == TreasuryTransaction.TransactionType.WITHDRAWAL:
+            if amount > current_total:
+                raise ValidationError({'amount': f'Insufficient funds. Current budget is ₱{current_total}.'})
+            new_balance = current_total - amount
+        elif transaction_type == TreasuryTransaction.TransactionType.DEPOSIT:
+            new_balance = current_total + amount
+        elif transaction_type == TreasuryTransaction.TransactionType.FUND_EDIT_ADD:
+            new_balance = current_total + amount
+        elif transaction_type == TreasuryTransaction.TransactionType.FUND_EDIT_SUB:
+            new_balance = current_total - amount
+        else:
+            new_balance = current_total
+
+        tx = serializer.save(
+            recorded_by=user,
+            recorded_by_name=recorded_by_name,
+            recorded_by_role=recorded_by_role,
+            running_balance=new_balance,
+        )
+
+        # Log activity for affected employees if employee_changes are provided
+        employee_changes = self.request.data.get('employee_changes', [])
+        if employee_changes:
+            from .models import ActivityLog, UserProfile
+            for change in employee_changes:
+                emp_id = change.get('emp_id')
+                diff = change.get('diff', 0)
+                month_name = change.get('month_name', '')
+                cutoff = change.get('cutoff', '')
+                
+                if not emp_id or diff == 0:
+                    continue
+                    
+                # Find the user associated with this employee
+                profile = UserProfile.objects.filter(employee_id=emp_id).select_related('user').first()
+                if profile and profile.user:
+                    sign = '+' if diff > 0 else '-'
+                    action = f"Fund Edit {'Addition' if diff > 0 else 'Subtraction'}"
+                    desc = f"{sign}PHP {abs(diff):.2f} for {month_name} {cutoff} (Edited by {recorded_by_name})"
+                    ActivityLog.objects.create(
+                        user=profile.user,
+                        action=action,
+                        description=desc
+                    )
+            
+            # Log for the admin performing the batch change
+            ActivityLog.objects.create(
+                user=user,
+                action="Fund Batch Edit",
+                description=f"You applied a batch fund edit affecting {len(employee_changes)} employees."
+            )

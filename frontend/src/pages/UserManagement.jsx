@@ -1,18 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, RefreshCw, ShieldAlert, KeyRound, UserCog, Lock, CheckCircle2, UserCircle, UserPlus } from 'lucide-react';
+import { Search, RefreshCw, ShieldAlert, KeyRound, UserCog, Lock, CheckCircle2, UserCircle, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { getAllEmployees, seedEmployees } from '../db';
 import { fetchEmployees } from '../hooks/useSync';
+import Toast from '../components/Toast';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 const ROLE_COLORS = {
   SuperAdmin: { bg: '#fef3c7', color: '#92400e', border: '#fde68a' },
-  President:  { bg: '#ede9fe', color: '#5b21b6', border: '#ddd6fe' },
+  President: { bg: '#ede9fe', color: '#5b21b6', border: '#ddd6fe' },
   'Vice President': { bg: '#e0f2fe', color: '#0c4a6e', border: '#bae6fd' },
-  Secretary:  { bg: '#dcfce7', color: '#166534', border: '#bbf7d0' },
-  Treasurer:  { bg: '#fce7f3', color: '#9d174d', border: '#fbcfe8' },
-  Member:     { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
+  Secretary: { bg: '#dcfce7', color: '#166534', border: '#bbf7d0' },
+  Treasurer: { bg: '#fce7f3', color: '#9d174d', border: '#fbcfe8' },
+  Member: { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
 };
 const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Vice President', 'President', 'SuperAdmin'];
 
@@ -23,14 +24,18 @@ export default function UserManagement({ isOnline }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [officersOnly, setOfficersOnly] = useState(false);
 
   // Modal state
   const [modal, setModal] = useState(null); // 'set-password' | 'set-role' | 'create-user'
   const [targetUser, setTargetUser] = useState(null);
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [newRole, setNewRole] = useState('Member');
   const [modalLoading, setModalLoading] = useState(false);
   const [modalMsg, setModalMsg] = useState(null);
+  const [toast, setToast] = useState(null);
 
   // Create-user form
   const [createForm, setCreateForm] = useState({ username: '', password: '', role: 'Member', employee_id: '' });
@@ -62,7 +67,8 @@ export default function UserManagement({ isOnline }) {
 
   function openModal(type, u) {
     setTargetUser(u); setModal(type);
-    setNewPassword(''); setNewRole(u?.role || 'Member'); setModalMsg(null);
+    setNewPassword(''); setConfirmPassword(''); setShowPw(false);
+    setNewRole(u?.role || 'Member'); setModalMsg(null);
   }
   function openCreateUser(emp = null) {
     setCreateForm({
@@ -77,6 +83,7 @@ export default function UserManagement({ isOnline }) {
 
   async function handleSetPassword() {
     if (newPassword.length < 8) { setModalMsg({ type: 'error', text: 'Password must be at least 8 characters.' }); return; }
+    if (newPassword !== confirmPassword) { setModalMsg({ type: 'error', text: 'Passwords do not match.' }); return; }
     setModalLoading(true);
     try {
       const res = await authFetch(`${API_BASE}/auth/set-password/${targetUser.id}/`, {
@@ -85,7 +92,8 @@ export default function UserManagement({ isOnline }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed.');
-      setModalMsg({ type: 'success', text: data.message });
+      closeModal();
+      setToast({ type: 'success', message: `Password ${targetUser.has_usable_password ? 'reset' : 'set'} for ${targetUser.employee_name || targetUser.username}.` });
       await load();
     } catch (e) { setModalMsg({ type: 'error', text: e.message }); }
     finally { setModalLoading(false); }
@@ -139,11 +147,13 @@ export default function UserManagement({ isOnline }) {
     finally { setModalLoading(false); }
   }
 
-  const filtered = users.filter(u =>
-    u.username.toLowerCase().includes(search.toLowerCase()) ||
-    (u.employee_name || '').toLowerCase().includes(search.toLowerCase()) ||
-    u.role.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = users.filter(u => {
+    const matchSearch = u.username.toLowerCase().includes(search.toLowerCase()) ||
+      (u.employee_name || '').toLowerCase().includes(search.toLowerCase()) ||
+      u.role.toLowerCase().includes(search.toLowerCase());
+    const matchOfficers = !officersOnly || u.role !== 'Member';
+    return matchSearch && matchOfficers;
+  });
 
   return (
     <div>
@@ -159,6 +169,10 @@ export default function UserManagement({ isOnline }) {
                 value={search} onChange={e => setSearch(e.target.value)}
                 style={{ width: 200, padding: '6px 12px 6px 28px' }} />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', cursor: 'pointer', userSelect: 'none', marginRight: 8 }}>
+              <input type="checkbox" checked={officersOnly} onChange={e => setOfficersOnly(e.target.checked)} />
+              Officers Only
+            </label>
             <button className="btn btn-primary btn-sm" onClick={() => openCreateUser()}
               style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <UserPlus size={14} /> Create User
@@ -317,15 +331,56 @@ export default function UserManagement({ isOnline }) {
               {!targetUser.has_usable_password && <span style={{ display: 'block', marginTop: 6, color: '#dc2626', fontSize: 12 }}>⚠ This account has no password yet.</span>}
             </p>
             {modalMsg && <div className={`alert alert-${modalMsg.type === 'success' ? 'success' : 'danger'}`} style={{ marginBottom: 12 }}>{modalMsg.text}</div>}
+
+            {/* New Password */}
             <div className="form-group">
               <label className="form-label">New Password (min 8 chars)</label>
-              <input type="password" className="form-input" value={newPassword}
-                onChange={e => setNewPassword(e.target.value)} placeholder="Enter new password" autoFocus />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  className="form-input"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  autoFocus
+                  style={{ paddingRight: 40 }}
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2 }}>
+                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
             </div>
+
+            {/* Confirm Password */}
+            <div className="form-group" style={{ marginTop: 12 }}>
+              <label className="form-label">Confirm Password</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  className="form-input"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter new password"
+                  style={{
+                    paddingRight: 40,
+                    borderColor: confirmPassword && confirmPassword !== newPassword ? '#dc2626' : undefined,
+                  }}
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: 2 }}>
+                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {confirmPassword && confirmPassword !== newPassword && (
+                <span style={{ fontSize: 11, color: '#dc2626', marginTop: 4, display: 'block' }}>Passwords do not match.</span>
+              )}
+            </div>
+
             <div className="btn-row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={closeModal}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSetPassword} disabled={modalLoading}>
-                {modalLoading ? 'Setting…' : 'Set Password'}
+                {modalLoading ? 'Setting…' : (targetUser.has_usable_password ? 'Reset Password' : 'Set Password')}
               </button>
             </div>
           </div>
@@ -358,6 +413,14 @@ export default function UserManagement({ isOnline }) {
             </div>
           </div>
         </div>
+      )}
+      {toast && (
+        <Toast
+          type={toast.type}
+          message={toast.message}
+          onUndo={null}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   );

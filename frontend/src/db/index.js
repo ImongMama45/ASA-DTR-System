@@ -28,7 +28,20 @@ export async function getAllEmployees() {
 export async function addEmployee(emp) {
   const db = await initDB();
   const id = await db.add('employees', { ...emp, synced: false, createdAt: Date.now() });
-  await addToSyncQueue({ action: 'CREATE_EMPLOYEE', payload: { ...emp, localId: id } });
+  if (emp.replacedEmployeeId || emp.replacedLocalId) {
+    const oldEmpId = Number(emp.replacedEmployeeId || emp.replacedLocalId);
+    const oldEmp = await db.get('employees', oldEmpId);
+    if (oldEmp) {
+      await db.put('employees', { ...oldEmp, is_active: false, synced: false });
+    }
+    await addToSyncQueue({ 
+      action: 'REPLACE_EMPLOYEE', 
+      payload: { ...emp, localId: id, replaced_employee_id: emp.replacedEmployeeId, replaced_local_id: emp.replacedLocalId } 
+    });
+  } else {
+    await addToSyncQueue({ action: 'CREATE_EMPLOYEE', payload: { ...emp, localId: id } });
+  }
+  
   return id;
 }
 export async function updateEmployee(emp) {
@@ -91,6 +104,9 @@ export async function seedEmployees(list) {
       start: emp.start_date || '',
       end_date: emp.end_date || '',
       is_active: emp.is_active !== false,
+      role: emp.role,
+      username: emp.username,
+      profile_pic: emp.profile_pic,
       synced: true,
       createdAt: new Date(emp.created_at).getTime(),
     });

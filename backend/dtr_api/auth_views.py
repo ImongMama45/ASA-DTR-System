@@ -257,10 +257,12 @@ def users_list_view(request):
             role = profile.role
             emp_name = emp.name if emp else u.username
             emp_id = emp.id if emp else None
+            profile_pic = profile.profile_pic
         except UserProfile.DoesNotExist:
             role = 'Member'
             emp_name = u.username
             emp_id = None
+            profile_pic = None
 
         data.append({
             'id': u.id,
@@ -270,6 +272,7 @@ def users_list_view(request):
             'employee_name': emp_name,
             'is_active': u.is_active,
             'has_usable_password': u.has_usable_password(),
+            'profile_pic': profile_pic,
         })
 
     return Response(data)

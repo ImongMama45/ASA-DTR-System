@@ -1,12 +1,16 @@
 from rest_framework import serializers
 
-from .models import Employee, DTRBatch, FundPayment, Attachment
+from .models import Employee, DTRBatch, FundPayment, Attachment, TreasuryTransaction
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
+    role = serializers.CharField(source='user_profile.role', read_only=True, default=None)
+    username = serializers.CharField(source='user_profile.user.username', read_only=True, default=None)
+    profile_pic = serializers.URLField(source='user_profile.profile_pic', read_only=True, default=None)
+
     class Meta:
         model = Employee
-        fields = ['id', 'name', 'duty', 'office', 'start_date', 'end_date', 'is_active', 'local_id', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'duty', 'office', 'start_date', 'end_date', 'is_active', 'local_id', 'created_at', 'updated_at', 'role', 'username', 'profile_pic']
 
 
 class FundPaymentSerializer(serializers.ModelSerializer):
@@ -59,3 +63,13 @@ class AttachmentSerializer(serializers.ModelSerializer):
         model = Attachment
         fields = ['id', 'original_filename', 'mime_type', 'uploaded_at', 'employee', 'dtr_batch', 'fund_payment']
         read_only_fields = ['id', 'uploaded_at']
+
+
+class TreasuryTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TreasuryTransaction
+        fields = [
+            'id', 'transaction_id', 'transaction_type', 'amount', 'description',
+            'recorded_by_name', 'recorded_by_role', 'running_balance', 'created_at',
+        ]
+        read_only_fields = ['id', 'transaction_id', 'recorded_by_name', 'recorded_by_role', 'running_balance', 'created_at']

@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';           // Admin dashboard (officers)
-import MemberDashboard from './pages/MemberDashboard'; // Personal stats (members)
+import Dashboard from './pages/Dashboard';
+import MemberDashboard from './pages/MemberDashboard';
 import Employees from './pages/Employees';
 import Generator from './pages/Generator';
 import Review from './pages/Review';
 import FundTracker from './pages/FundTracker';
 import UserManagement from './pages/UserManagement';
 import UserSettings from './pages/Settings';
+import ConfirmModal from './components/ConfirmModal';
 import { useSync } from './hooks/useSync';
 import { LayoutDashboard, Home, Users, Settings as SettingsIcon, Printer, Wallet, ShieldAlert, GraduationCap, UserCircle } from 'lucide-react';
 import './App.css';
@@ -17,9 +18,8 @@ import './App.css';
 function AuthenticatedApp() {
   const { user, logout, isSuperAdmin, canManageEmployees, canCreateDTR } = useAuth();
   const { isOnline, isSyncing } = useSync();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  // Members/Secretary/Treasurer land on the personal dashboard;
-  // officers (President, VP, SuperAdmin) land on the admin overview.
   const isOfficer = ['SuperAdmin', 'President', 'Vice President'].includes(user?.role);
   const defaultPage = isOfficer ? 'dashboard' : 'my-dashboard';
   const [page, setPage] = useState(defaultPage);
@@ -69,11 +69,15 @@ function AuthenticatedApp() {
           }}>
             <div style={{
               width: 26, height: 26, borderRadius: '50%',
-              background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              background: user?.profile_pic ? '#fff' : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 700, fontSize: 11, color: '#fff',
+              fontWeight: 700, fontSize: 11, color: '#fff', overflow: 'hidden'
             }}>
-              {(user?.employee_name || user?.username || '?')[0].toUpperCase()}
+              {user?.profile_pic ? (
+                <img src={user.profile_pic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                (user?.employee_name || user?.username || '?')[0].toUpperCase()
+              )}
             </div>
             <span style={{ color: '#e2e8f0', fontWeight: 600 }}>
               {user?.employee_name || user?.username}
@@ -82,7 +86,7 @@ function AuthenticatedApp() {
           </div>
           <button
             id="logout-btn"
-            onClick={() => { if (window.confirm('Are you sure you want to log out?')) logout(); }}
+          onClick={() => setShowLogoutModal(true)}
             style={{
               background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
               color: '#fca5a5', padding: '5px 12px', borderRadius: 8,
@@ -117,6 +121,14 @@ function AuthenticatedApp() {
         {page === 'settings'                    && <UserSettings />}
         {page === 'users'        && isSuperAdmin  && <UserManagement />}
       </main>
+
+      <ConfirmModal
+        isOpen={showLogoutModal}
+        title="Sign Out"
+        message="Are you sure you want to sign out? Any unsaved changes may be lost."
+        onConfirm={() => { setShowLogoutModal(false); logout(); }}
+        onCancel={() => setShowLogoutModal(false)}
+      />
     </div>
   );
 }

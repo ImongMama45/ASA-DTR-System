@@ -9,8 +9,12 @@ import {
   XCircle,
   Loader2,
   ShieldCheck,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 export default function Login() {
   const { login } = useAuth();
@@ -20,6 +24,32 @@ export default function Login() {
   const [warning, setWarning] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // null = checking, true = online, false = offline
+  const [backendStatus, setBackendStatus] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkBackend() {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(`${API_BASE}/auth/me/`, {
+          signal: controller.signal,
+          cache: 'no-store',          // never use a cached response
+        });
+        clearTimeout(timeout);
+        // 502/503/504 = Vite proxy couldn't reach Django — server is down
+        const gatewayErrors = [502, 503, 504];
+        if (!cancelled) setBackendStatus(!gatewayErrors.includes(res.status));
+      } catch {
+        // Network error / timeout — also offline
+        if (!cancelled) setBackendStatus(false);
+      }
+    }
+    checkBackend();
+    const interval = setInterval(checkBackend, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     const reason = sessionStorage.getItem('logout_reason');
@@ -220,6 +250,42 @@ export default function Login() {
         @keyframes spin { to { transform: rotate(360deg); } }
         .login-spinner { animation: spin 0.7s linear infinite; }
 
+        /* Backend status pill */
+        .login-status-pill {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 5px 12px;
+          border-radius: 20px;
+          font-size: 12px; font-weight: 600;
+          margin-bottom: 20px;
+          letter-spacing: 0.2px;
+        }
+        .login-status-pill.checking {
+          background: rgba(100,116,139,0.12);
+          border: 1px solid rgba(100,116,139,0.25);
+          color: #94a3b8;
+        }
+        .login-status-pill.online {
+          background: rgba(34,197,94,0.08);
+          border: 1px solid rgba(34,197,94,0.25);
+          color: #4ade80;
+        }
+        .login-status-pill.offline {
+          background: rgba(239,68,68,0.08);
+          border: 1px solid rgba(239,68,68,0.25);
+          color: #f87171;
+        }
+        .login-status-dot {
+          width: 7px; height: 7px; border-radius: 50%;
+        }
+        .login-status-dot.online  { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+        .login-status-dot.offline { background: #ef4444; }
+        .login-status-dot.checking { background: #64748b; }
+
+        @keyframes pulse-dot {
+          0%,100% { opacity:1; } 50% { opacity:0.3; }
+        }
+        .login-status-dot.checking { animation: pulse-dot 1.2s ease-in-out infinite; }
+
         /* Footer note */
         .login-note {
           margin-top: 28px;
@@ -294,6 +360,18 @@ export default function Login() {
               <h2 className="login-form-title">Welcome back</h2>
               <p className="login-form-subtitle">Sign in to your account to continue.</p>
               <div className="login-divider" />
+            </div>
+
+            {/* Backend status pill */}
+            <div className={`login-status-pill ${
+              backendStatus === null ? 'checking' : backendStatus ? 'online' : 'offline'
+            }`}>
+              <span className={`login-status-dot ${
+                backendStatus === null ? 'checking' : backendStatus ? 'online' : 'offline'
+              }`} />
+              {backendStatus === null && 'Checking server…'}
+              {backendStatus === true  && <><Wifi size={12} /> Server Online</>}
+              {backendStatus === false && <><WifiOff size={12} /> Server Offline — login may fail</>}
             </div>
 
             {warning && (

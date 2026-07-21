@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllEmployees } from '../db';
 import { useAuth } from '../contexts/AuthContext';
+import ConfirmModal from '../components/ConfirmModal';
+import Toast from '../components/Toast';
+import { useSync } from '../hooks/useSync';
 import { Wallet, Search, Filter, History, Cloud, CloudOff, RefreshCw, AlertTriangle, Info, Edit3, X, Eye, EyeOff, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { TreasuryActions, FundLogsButton } from '../components/TreasuryPanel';
 
 // Mirrors the pattern in useSync.js — VITE_API_URL already contains /api
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
-function getAuthHeaders() {
-  const token = localStorage.getItem('access_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
@@ -38,35 +39,104 @@ function getFormattedDate() {
   return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
 }
 
+function PartialInput({ initialValue, dateStr, onSave }) {
+  const [val, setVal] = useState(String(initialValue));
+  const [hovered, setHovered] = useState(false);
+  const onSaveRef = useRef(onSave);
+  
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
+
+  useEffect(() => {
+    if (String(initialValue) !== '0') {
+      setVal(String(initialValue));
+    }
+  }, [initialValue]);
+
+  useEffect(() => {
+    if ((val === '' || Number(val) === 0) && !hovered) {
+      const timer = setTimeout(() => {
+        onSaveRef.current(0);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [val, hovered]);
+
+  const handleChange = (e) => {
+    const v = e.target.value;
+    setVal(v);
+    if (v !== '' && Number(v) !== 0) {
+      onSaveRef.current(Number(v));
+    }
+  };
+
+  return (
+    <div 
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }} 
+      onClick={e => e.stopPropagation()}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <span style={{ fontSize: 11, fontWeight: 'bold', color: '#ea580c' }}>₱</span>
+        <input
+          type="number" value={val}
+          onChange={handleChange}
+          style={{ width: 38, padding: '2px 4px', fontSize: 11, textAlign: 'center', border: '1px solid #fdba74', borderRadius: 4, background: '#fff', color: '#ea580c', fontWeight: 'bold' }}
+        />
+      </div>
+      {dateStr && <div style={{ fontSize: 9, color: '#64748b', marginTop: 4 }}>{dateStr}</div>}
+    </div>
+  );
+}
+
 export default function FundTracker({ isOnline }) {
-  const { canEditFunds } = useAuth();
+  const { canEditFunds, authFetch } = useAuth();
+  const { isSyncing } = useSync();
   const [employees, setEmployees] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
   const [payments, setPayments] = useState({}); // key: empServerId-year-month-cutoff -> { amount, modified_at }
+  const [pendingPayment, setPendingPayment] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [initialEditState, setInitialEditState] = useState(null);
+  const [showEditWarning, setShowEditWarning] = useState(false);
+  const [showDoneEditing, setShowDoneEditing] = useState(false);
   const [isNameCollapsed, setIsNameCollapsed] = useState(false);
   const [viewFilter, setViewFilter] = useState('active'); // 'active' | 'archived' | 'all'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncStatus, setSyncStatus] = useState({ last_synced_at: null, spreadsheet_id: null });
   const [syncing, setSyncing] = useState(false);
+  const [totalBudget, setTotalBudget] = useState('0.00');
+  const [toastMessage, setToastMessage] = useState(null);
+
+  const fetchTotalBudget = useCallback(async () => {
+    if (!isOnline) return;
+    try {
+      const res = await authFetch(`${API_BASE}/treasury/summary/`);
+      if (res.ok) {
+        const data = await res.json();
+        setTotalBudget(data.total_budget);
+      }
+    } catch (_) {}
+  }, [isOnline]);
 
   const fetchSyncStatus = useCallback(async () => {
     if (!isOnline) return;
     try {
-      const res = await fetch(`${API_BASE}/sheets-sync-status/`, { headers: getAuthHeaders() });
+      const res = await authFetch(`${API_BASE}/sheets-sync-status/`);
       if (res.ok) setSyncStatus(await res.json());
     } catch (_) { }
-  }, [isOnline]);
+  }, [isOnline, authFetch]);
 
   async function triggerSyncNow() {
     if (!isOnline || syncing) return;
     setSyncing(true);
     try {
-      const res = await fetch(`${API_BASE}/sheets-sync-now/`, {
+      const res = await authFetch(`${API_BASE}/sheets-sync-now/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -95,18 +165,20 @@ export default function FundTracker({ isOnline }) {
       setEmployees(emps);
 
       if (isOnline) {
-        const res = await fetch(`${API_BASE}/fund-payments/?year=${year}`, { headers: getAuthHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          const map = {};
-          data.forEach(p => {
-            // p.employee is the server PK integer, which equals emp.id in local IndexedDB
-            const key = `${p.employee}-${p.year}-${p.month}-${p.cutoff}`;
-            map[key] = { amount: parseFloat(p.amount), date: p.modified_at ? p.modified_at.slice(0, 10) : '' };
-          });
-          setPayments(map);
-          return;
-        }
+        try {
+          const res = await authFetch(`${API_BASE}/fund-payments/?year=${year}`);
+          if (res.ok) {
+            const data = await res.json();
+            const map = {};
+            data.forEach(p => {
+              // p.employee is the server PK integer, which equals emp.id in local IndexedDB
+              const key = `${p.employee}-${p.year}-${p.month}-${p.cutoff}`;
+              map[key] = { amount: parseFloat(p.amount), date: p.modified_at ? p.modified_at.slice(0, 10) : '' };
+            });
+            setPayments(map);
+            return;
+          }
+        } catch (_) {}
       }
       // Offline fallback — localStorage
       const saved = localStorage.getItem(`fundPayments-${year}`);
@@ -119,12 +191,25 @@ export default function FundTracker({ isOnline }) {
   }, [year, isOnline]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { fetchSyncStatus(); }, [fetchSyncStatus]);
+  
+  const prevSyncing = useRef(isSyncing);
+  useEffect(() => {
+    if (prevSyncing.current && !isSyncing) {
+      load();
+    }
+    prevSyncing.current = isSyncing;
+  }, [isSyncing, load]);
 
-  async function savePayment(emp, monthIndex, cutoff, amount) {
+  useEffect(() => { fetchSyncStatus(); }, [fetchSyncStatus]);
+  useEffect(() => { fetchTotalBudget(); }, [fetchTotalBudget]);
+
+  async function savePayment(emp, monthIndex, cutoff, amount, isUndo = false) {
     const key = `${emp.id}-${year}-${monthIndex + 1}-${cutoff}`;
     const dateStr = getFormattedDate();
     const newVal = { amount, date: dateStr };
+
+    const prevValObj = payments[key];
+    const prevAmount = prevValObj?.amount ?? 0;
 
     setPayments(prev => {
       const next = { ...prev, [key]: newVal };
@@ -135,9 +220,9 @@ export default function FundTracker({ isOnline }) {
     if (isOnline && emp.id) {
       setSaving(true);
       try {
-        await fetch(`${API_BASE}/fund-payments/upsert/`, {
+        await authFetch(`${API_BASE}/fund-payments/upsert/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             employee_id: emp.id,
             year,
@@ -146,11 +231,33 @@ export default function FundTracker({ isOnline }) {
             amount,
           }),
         });
+        if (!isUndo) {
+          setToastMessage({
+            type: 'success',
+            message: `Updated payment for ${emp.name}`,
+            onUndo: () => {
+              savePayment(emp, monthIndex, cutoff, prevAmount, true);
+              setToastMessage({ type: 'success', message: 'Action undone.', onUndo: null });
+            }
+          });
+        }
       } catch (e) {
         console.warn('Fund save failed, stored locally.', e);
+        if (!isUndo) {
+          setToastMessage({ type: 'warning', message: 'Saved locally (offline)', onUndo: null });
+        }
       } finally {
         setSaving(false);
       }
+    } else if (!isUndo) {
+      setToastMessage({
+        type: 'success',
+        message: `Updated payment for ${emp.name} (local)`,
+        onUndo: () => {
+          savePayment(emp, monthIndex, cutoff, prevAmount, true);
+          setToastMessage({ type: 'success', message: 'Action undone.', onUndo: null });
+        }
+      });
     }
   }
 
@@ -162,7 +269,19 @@ export default function FundTracker({ isOnline }) {
     if (current === 0) next = 20;
     else if (current >= 20) next = 10;
     else next = 0;
-    savePayment(emp, monthIndex, cutoff, next);
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthName = monthNames[monthIndex];
+    const cutoffName = cutoff === 1 ? '15' : '31';
+    
+    let statusName = 'Unpaid';
+    if (next === 20) statusName = 'Paid (₱20)';
+    if (next === 10) statusName = 'Partial (₱10)';
+
+    setPendingPayment({
+      emp, monthIndex, cutoff, amount: next,
+      message: `Change ${emp.name}'s payment for ${monthName} ${cutoffName} to ${statusName}?`
+    });
   }
 
   function updatePartial(emp, monthIndex, cutoff, amount) {
@@ -171,7 +290,109 @@ export default function FundTracker({ isOnline }) {
 
   function toggleEditMode() {
     if (!canEditFunds) return;
-    setIsEditing(v => !v);
+    if (!isEditing) {
+      setShowEditWarning(true);
+    } else {
+      setShowDoneEditing(true);
+    }
+  }
+
+  async function finalizeEditMode() {
+    setIsEditing(false);
+    setShowDoneEditing(false);
+
+    if (!initialEditState) return;
+
+    let netChange = 0;
+    let totalAbsolute = 0;
+    const additions = [];
+    const subtractions = [];
+    const employeeChanges = [];
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    for (const [key, currentValObj] of Object.entries(payments)) {
+      const initialValObj = initialEditState[key];
+      const initialAmount = initialValObj ? Number(initialValObj.amount) : 0;
+      const currentAmount = currentValObj ? Number(currentValObj.amount) : 0;
+
+      const diff = currentAmount - initialAmount;
+      if (Math.abs(diff) < 0.01) continue;
+
+      netChange += diff;
+      totalAbsolute += Math.abs(diff);
+
+      const parts = key.split('-');
+      if (parts.length >= 4) {
+        const empId = parts[0];
+        const emp = employees.find(e => String(e.id) === String(empId));
+        const empName = emp ? emp.name : 'Unknown Employee';
+        const month = Number(parts[2]);
+        const cutoff = parts[3] === '1' ? '15' : '31';
+        const monthName = monthNames[month - 1] || month;
+        const sign = diff > 0 ? '+' : '-';
+        const line = `    \u2022 ${empName} (${monthName} ${cutoff}): ${sign}PHP ${Math.abs(diff).toFixed(2)}`;
+        if (diff > 0) additions.push(line);
+        else subtractions.push(line);
+
+        employeeChanges.push({
+          emp_id: empId,
+          diff: diff,
+          month_name: monthName,
+          cutoff: cutoff
+        });
+      }
+    }
+
+    if (totalAbsolute < 0.01) {
+      setInitialEditState(null);
+      return;
+    }
+
+    const transactionType = netChange >= 0 ? 'FUND_EDIT_ADD' : 'FUND_EDIT_SUB';
+    const netSign = netChange >= 0 ? '+' : '-';
+
+    let descLines = [];
+    descLines.push(`Total Collected: ${netSign}PHP ${Math.abs(netChange).toFixed(2)} (net)  |  PHP ${totalAbsolute.toFixed(2)} total moved`);
+    descLines.push('');
+    if (additions.length > 0) {
+      descLines.push('Added:');
+      descLines.push(...additions);
+    }
+    if (subtractions.length > 0) {
+      if (additions.length > 0) descLines.push('');
+      descLines.push('Retracted:');
+      descLines.push(...subtractions);
+    }
+
+    try {
+      const res = await authFetch(`${API_BASE}/treasury/transactions/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transaction_type: transactionType,
+          amount: Math.abs(netChange).toFixed(2),
+          description: descLines.join('\n'),
+          employee_changes: employeeChanges
+        })
+      });
+      if (res.ok) {
+        fetchTotalBudget();
+        setToastMessage({
+          type: 'success',
+          message: `Fund edit logged: ${netSign}PHP ${Math.abs(netChange).toFixed(2)} net (PHP ${totalAbsolute.toFixed(2)} total)`,
+          onUndo: null
+        });
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setToastMessage({ type: 'error', message: errData?.detail || 'Failed to log fund edits.', onUndo: null });
+      }
+    } catch(e) {
+      console.warn('Failed to log fund edits', e);
+      setToastMessage({ type: 'error', message: 'Network error \u2014 fund edit not logged.', onUndo: null });
+    }
+
+    setInitialEditState(null);
   }
 
   function getCellStatus(emp, monthIndex, cutoffType) {
@@ -246,17 +467,11 @@ export default function FundTracker({ isOnline }) {
       </div>
     );
     if (status === 'incomplete') return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <span style={{ fontSize: 11, fontWeight: 'bold', color: '#ea580c' }}>₱</span>
-          <input
-            type="number" value={val}
-            onChange={e => updatePartial(emp, monthIndex, cType, e.target.value)}
-            style={{ width: 38, padding: '2px 4px', fontSize: 11, textAlign: 'center', border: '1px solid #fdba74', borderRadius: 4, background: '#fff', color: '#ea580c', fontWeight: 'bold' }}
-          />
-        </div>
-        {dateDiv}
-      </div>
+      <PartialInput
+        initialValue={val}
+        dateStr={dateStr}
+        onSave={(newAmount) => updatePartial(emp, monthIndex, cType, newAmount)}
+      />
     );
     return <span style={{ color: '#cbd5e1' }}>·</span>;
   }
@@ -296,6 +511,14 @@ export default function FundTracker({ isOnline }) {
             <div style={{ fontSize: 24, fontWeight: 800, color: '#10b981', marginTop: 2 }}>₱ {grandTotalPaid.toLocaleString()}</div>
           </div>
           <div style={{ width: 1, height: 40, background: '#cbd5e1' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
+              Total Accumulative Funds
+              <Info size={14} color="#94a3b8" title="Total funds available in the treasury." style={{ cursor: 'help' }} />
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#3b82f6', marginTop: 2 }}>₱ {Number(totalBudget).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          </div>
+          <div style={{ width: 1, height: 40, background: '#cbd5e1' }} />
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{
               width: 36, height: 36, borderRadius: '50%',
@@ -320,15 +543,17 @@ export default function FundTracker({ isOnline }) {
                 )}
               </div>
             </div>
-            <button
-              className="btn btn-sm btn-outline"
-              onClick={triggerSyncNow}
-              disabled={!isOnline || syncing}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100, justifyContent: 'center' }}
-            >
-              <RefreshCw size={14} className={syncing ? 'login-spinner' : ''} />
-              {syncing ? 'Syncing…' : 'Sync Now'}
-            </button>
+            {canEditFunds && (
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={triggerSyncNow}
+                disabled={!isOnline || syncing}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 100, justifyContent: 'center' }}
+              >
+                <RefreshCw size={14} className={syncing ? 'login-spinner' : ''} />
+                {syncing ? 'Syncing…' : 'Sync Now'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -343,11 +568,41 @@ export default function FundTracker({ isOnline }) {
           </div>
         )}
 
-        {canEditFunds && (
-          <div style={{ marginBottom: 16 }}>
-            <button className={`btn ${isEditing ? 'btn-success' : 'btn-outline'}`} onClick={toggleEditMode}>
-              {isEditing ? <><Check size={16} /> Done Editing</> : <><Edit3 size={16} /> Edit Mode</>}
-            </button>
+        <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          {canEditFunds && (
+            <>
+              <button className={`btn ${isEditing ? 'btn-success' : 'btn-outline'}`} onClick={toggleEditMode}>
+                {isEditing ? <><Check size={16} /> Done Editing</> : <><Edit3 size={16} /> Edit Mode</>}
+              </button>
+              <TreasuryActions canEditFunds={canEditFunds} onComplete={fetchTotalBudget} />
+            </>
+          )}
+          <FundLogsButton />
+        </div>
+
+        {showEditWarning && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 400, boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fef9c3', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a16207' }}>
+                  <AlertTriangle size={24} />
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>Enable Edit Mode</div>
+              </div>
+              <p style={{ color: '#475569', fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
+                Are you sure you want to edit the fund tracker? Proceed with caution.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button className="btn btn-outline" onClick={() => setShowEditWarning(false)}>Cancel</button>
+                <button 
+                  className="btn" 
+                  style={{ background: '#3b82f6', color: '#fff', border: 'none' }}
+                  onClick={() => { setIsEditing(true); setInitialEditState({ ...payments }); setShowEditWarning(false); }}
+                >
+                  Yes, enable editing
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -472,6 +727,34 @@ export default function FundTracker({ isOnline }) {
           </table>
         </div>
       </div>
+      
+      <ConfirmModal
+        isOpen={!!pendingPayment}
+        title="Confirm Payment Change"
+        message={pendingPayment?.message}
+        onConfirm={() => {
+          savePayment(pendingPayment.emp, pendingPayment.monthIndex, pendingPayment.cutoff, pendingPayment.amount);
+          setPendingPayment(null);
+        }}
+        onCancel={() => setPendingPayment(null)}
+      />
+
+      <ConfirmModal
+        isOpen={showDoneEditing}
+        title="Finish Editing"
+        message="Are you sure you are done editing? Please ensure all payments have been updated correctly. A log of your edits will be created."
+        onConfirm={finalizeEditMode}
+        onCancel={() => setShowDoneEditing(false)}
+      />
+
+      {toastMessage && (
+        <Toast
+          type={toastMessage.type}
+          message={toastMessage.message}
+          onUndo={toastMessage.onUndo}
+          onClose={() => setToastMessage(null)}
+        />
+      )}
     </div>
   );
 }

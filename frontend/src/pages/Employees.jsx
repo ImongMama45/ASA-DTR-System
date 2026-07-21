@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog } from 'lucide-react';
+import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter } from 'lucide-react';
 import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees } from '../db';
 import {
   fetchEmployees,
@@ -113,10 +113,16 @@ export default function Employees({ isOnline }) {
   const { canManageEmployees, isSuperAdmin, authFetch } = useAuth();
 
   const [employees, setEmployees] = useState([]);
-  // Map of employee_id → { username, role } for employees that have a user account
-  const [linkedUsers, setLinkedUsers] = useState({});
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dutyFilter, setDutyFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('active');
+  const [officersOnly, setOfficersOnly] = useState(false);
+  const [sortJoined, setSortJoined] = useState('newest');
 
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
+  const [replacedEmployeeId, setReplacedEmployeeId] = useState('');
+  
   // User creation fields (only shown when adding a new employee as SuperAdmin)
   const [createUser, setCreateUser] = useState(false);
   const [userForm, setUserForm] = useState({ username: '', password: '', role: 'Member' });
@@ -133,16 +139,6 @@ export default function Employees({ isOnline }) {
   async function load() {
     if (isOnline) {
       try { const list = await fetchEmployees(); await seedEmployees(list); } catch { /* offline */ }
-      // Load linked users map (SuperAdmin only — others get 403)
-      try {
-        const res = await authFetch(`${API_BASE}/auth/users/`);
-        if (res.ok) {
-          const users = await res.json();
-          const map = {};
-          users.forEach(u => { if (u.employee_id) map[u.employee_id] = { username: u.username, role: u.role }; });
-          setLinkedUsers(map);
-        }
-      } catch { /* not SuperAdmin */ }
     }
     setEmployees(await getAllEmployees());
   }
@@ -157,7 +153,14 @@ export default function Employees({ isOnline }) {
       if (userForm.password.length < 8) { setMsg({ type: 'danger', text: 'Password must be at least 8 characters.' }); return; }
     }
     setSaving(true);
-    const data = { name: form.name.trim().toUpperCase(), duty: form.duty, office: form.office, start: form.start };
+    const data = { 
+      name: form.name.trim().toUpperCase(), 
+      duty: form.duty, 
+      office: form.office, 
+      start: form.start,
+      replacedEmployeeId: replacedEmployeeId ? Number(replacedEmployeeId) : null,
+      replacedLocalId: replacedEmployeeId ? String(replacedEmployeeId) : null
+    };
 
     try {
       let serverId = form.id;
@@ -166,7 +169,9 @@ export default function Employees({ isOnline }) {
           await updateServerEmployee(form.id, data);
           setMsg({ type: 'success', text: 'Employee updated.' });
         } else {
-          const created = await createServerEmployee(data);
+          const res = await createServerEmployee(data);
+          // If it was a swap, res is { new_employee, replaced_employee }
+          const created = res.new_employee || res;
           serverId = created?.id;
           setMsg({ type: 'success', text: 'Employee added.' });
         }
@@ -226,6 +231,7 @@ export default function Employees({ isOnline }) {
 
   function clearForm() {
     setForm({ id: null, name: '', duty: 'AM', office: '', start: '' });
+    setReplacedEmployeeId('');
     setUserForm({ username: '', password: '', role: 'Member' });
     setCreateUser(false);
   }
@@ -307,9 +313,42 @@ export default function Employees({ isOnline }) {
               <input type="date" className="form-input" value={form.start} onChange={e => setField('start', e.target.value)} />
             </div>
           </div>
+          
+          {!form.id && (
+            <div style={{ marginBottom: 12 }}>
+              <label className="form-label">Replaces (Optional Swap)</label>
+              <select 
+                className="form-select"
+                value={replacedEmployeeId}
+                onChange={e => {
+                  const id = e.target.value;
+                  setReplacedEmployeeId(id);
+                  if (id) {
+                    const oldEmp = employees.find(emp => String(emp.id) === id);
+                    if (oldEmp) {
+                      setForm(f => ({
+                        ...f,
+                        duty: oldEmp.duty,
+                        office: oldEmp.office || '',
+                        start: new Date().toISOString().split('T')[0]
+                      }));
+                    }
+                  }
+                }}
+              >
+                <option value="">-- No replacement --</option>
+                {employees.filter(e => e.is_active !== false).map(e => (
+                  <option key={e.id} value={e.id}>{e.name} ({e.duty})</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                Selecting an active employee will automatically archive them and inherit their duty and office.
+              </div>
+            </div>
+          )}
 
           {/* Create user account toggle — only when SuperAdmin, and employee doesn't have an account */}
-          {isSuperAdmin && (!form.id || !linkedUsers[form.id]) && (
+          {isSuperAdmin && (!form.id || !employees.find(e => e.id === form.id)?.username) && (
             <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#334155' }}>
                 <input type="checkbox" checked={createUser} onChange={e => setCreateUser(e.target.checked)} />
@@ -394,38 +433,110 @@ export default function Employees({ isOnline }) {
       )}
 
       {/* ── Employee list ── */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-          <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Users size={18} /> Employee List ({employees.length})
-          </div>
-          {employees.length > 0 && (
-            <div className="btn-row" style={{ margin: 0 }}>
-              <button className="btn btn-sm btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileDown size={14} /> CSV</button>
-              <button className="btn btn-sm btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileJson size={14} /> JSON</button>
-            </div>
-          )}
-        </div>
+      {(() => {
+        const filteredEmployees = employees.filter(emp => {
+          const lowerQuery = searchQuery.toLowerCase();
+          const matchSearch = emp.name.toLowerCase().includes(lowerQuery) || 
+                              (emp.office || '').toLowerCase().includes(lowerQuery);
+          const matchDuty = dutyFilter === 'all' || emp.duty === dutyFilter;
+          const matchActive = activeFilter === 'all' || 
+                              (activeFilter === 'active' && emp.is_active !== false) || 
+                              (activeFilter === 'archived' && emp.is_active === false);
+          
+          const isOfficer = emp.role && emp.role !== 'Member';
+          const matchOfficers = !officersOnly || isOfficer;
 
-        {employees.length === 0 ? (
-          <div className="empty-state"><div className="empty-icon"><User size={32} color="#94a3b8" /></div><div className="empty-msg">No employees added yet.</div></div>
-        ) : (
-          <div className="emp-list">
-            {employees.map(emp => {
-              const linked = linkedUsers[emp.id];
-              const roleStyle = linked ? (ROLE_COLORS[linked.role] || ROLE_COLORS.Member) : null;
+          return matchSearch && matchDuty && matchActive && matchOfficers;
+        });
+
+        filteredEmployees.sort((a, b) => {
+          if (!a.start && b.start) return 1;
+          if (a.start && !b.start) return -1;
+          if (!a.start && !b.start) return 0;
+          return sortJoined === 'newest' ? b.start.localeCompare(a.start) : a.start.localeCompare(b.start);
+        });
+
+        return (
+          <div className="card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+              <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Users size={18} /> Employee List ({filteredEmployees.length})
+              </div>
+              
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                  <input type="text" className="form-input" placeholder="Search SAs…"
+                    value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                    style={{ width: 160, padding: '6px 12px 6px 28px' }} />
+                </div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Filter size={14} color="#64748b" />
+                  <select className="form-select" value={dutyFilter} onChange={e => setDutyFilter(e.target.value)} style={{ padding: '6px 12px' }}>
+                    <option value="all">All Duties</option>
+                    <option value="AM">AM Duty</option>
+                    <option value="PM">PM Duty</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Filter size={14} color="#64748b" />
+                  <select className="form-select" value={activeFilter} onChange={e => setActiveFilter(e.target.value)} style={{ padding: '6px 12px' }}>
+                    <option value="active">Active Only</option>
+                    <option value="archived">Archived</option>
+                    <option value="all">All Status</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <select className="form-select" value={sortJoined} onChange={e => setSortJoined(e.target.value)} style={{ padding: '6px 12px' }}>
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                  </select>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', cursor: 'pointer', userSelect: 'none' }}>
+                  <input type="checkbox" checked={officersOnly} onChange={e => setOfficersOnly(e.target.checked)} />
+                  Officers Only
+                </label>
+
+                {employees.length > 0 && (
+                  <div className="btn-row" style={{ margin: 0, marginLeft: 8 }}>
+                    <button className="btn btn-sm btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileDown size={14} /> CSV</button>
+                    <button className="btn btn-sm btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileJson size={14} /> JSON</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {filteredEmployees.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon"><User size={32} color="#94a3b8" /></div>
+                <div className="empty-msg">No employees found matching your filters.</div>
+              </div>
+            ) : (
+              <div className="emp-list">
+                {filteredEmployees.map(emp => {
+              const roleStyle = emp.role ? (ROLE_COLORS[emp.role] || ROLE_COLORS.Member) : null;
               return (
                 <div className="emp-item" key={emp.id}>
-                  <div className="emp-avatar">{initials(emp.name)}</div>
+                  <div className="emp-avatar" style={{ overflow: 'hidden' }}>
+                    {emp.profile_pic ? (
+                      <img src={emp.profile_pic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      initials(emp.name)
+                    )}
+                  </div>
                   <div style={{ flex: 1 }}>
                     <div className="emp-name">{emp.name}</div>
                     <div className="emp-meta">
                       <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
                       {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}
                       {emp.start && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#666' }}>Since {emp.start}</span>}
-                      {linked ? (
+                      {emp.username ? (
                         <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: roleStyle.bg, color: roleStyle.color }}>
-                          <UserCog size={10} style={{ display: 'inline', marginRight: 3 }} />{linked.username} · {linked.role}
+                          <UserCog size={10} style={{ display: 'inline', marginRight: 3 }} />{emp.username} · {emp.role}
                         </span>
                       ) : isSuperAdmin ? (
                         <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No account</span>
@@ -439,9 +550,11 @@ export default function Employees({ isOnline }) {
                 </div>
               );
             })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* ── Delete Modal ── */}
       {deleteTarget && (
