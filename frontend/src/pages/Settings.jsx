@@ -284,7 +284,7 @@ export default function UserSettings() {
   const startDateStr = user?.start_date ? new Date(user.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Not Set';
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 40px', fontFamily: '"Inter", sans-serif', position: 'relative' }}>
+    <div className="settings-container">
 
       {/* Toast Notification */}
       {toast.isOpen && <Toast type={toast.type} message={toast.message} onClose={() => setToast({ ...toast, isOpen: false })} />}
@@ -335,11 +335,8 @@ export default function UserSettings() {
       <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 20 }}>User Settings</h1>
 
       {/* Top Banner */}
-      <div style={{
-        background: '#e2e8f0', borderRadius: 12, padding: 24,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 40
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+      <div className="settings-banner" style={{ marginBottom: 40 }}>
+        <div className="settings-banner-left">
           {/* Avatar */}
           <div style={{
             width: 70, height: 70, borderRadius: '50%', background: '#fff',
@@ -360,11 +357,11 @@ export default function UserSettings() {
               {user?.local_id && <span style={{ fontSize: 13, background: '#cbd5e1', color: '#334155', padding: '2px 8px', borderRadius: 12 }}>{user.local_id}</span>}
             </h2>
             <div style={{ fontSize: 14, color: '#475569', marginTop: 4 }}>{user?.username}</div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 2 }}>{user?.email || 'No email provided'}</div>
+            <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 2, wordBreak: 'break-all' }}>{user?.email || 'No email provided'}</div>
           </div>
         </div>
         <button
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569' }}
+          className="settings-edit-btn"
           title="Edit Profile"
           onClick={() => setIsEditingProfile(!isEditingProfile)}
         >
@@ -375,7 +372,7 @@ export default function UserSettings() {
       </div>
 
       {/* Main Grid Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 60, marginBottom: 60 }}>
+      <div className="settings-grid" style={{ marginBottom: 60 }}>
 
         {/* Left Column: Personal Information */}
         <div>
@@ -441,7 +438,7 @@ export default function UserSettings() {
             </>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
+          <div className="settings-stats-grid">
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>Office</div>
               <div style={{ fontSize: 13, color: '#64748b' }}>{user?.office || 'Not Assigned'}</div>
