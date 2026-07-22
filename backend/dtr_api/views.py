@@ -372,8 +372,12 @@ def sync_view(request):
 def dashboard_view(request):
     from django.db.models import Count
     last_sync = SyncLog.objects.filter(success=True).order_by('-processed_at').first()
+    active = Employee.objects.filter(is_active=True).count()
+    archived = Employee.objects.filter(is_active=False).count()
     return Response({
-        'total_employees': Employee.objects.filter(is_active=True).count(),
+        'total_employees': active + archived,
+        'active_employees': active,
+        'archived_employees': archived,
         'total_batches': DTRBatch.objects.count(),
         'last_sync': last_sync.processed_at.strftime('%Y-%m-%d %H:%M') if last_sync else None,
     })

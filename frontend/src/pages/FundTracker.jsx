@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getAllEmployees } from '../db';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getAllEmployees, seedEmployees } from '../db';
 import { useAuth } from '../contexts/AuthContext';
 import ConfirmModal from '../components/ConfirmModal';
 import Toast from '../components/Toast';
 import { useSync } from '../hooks/useSync';
+import { fetchEmployees } from '../hooks/useSync';
 import { Wallet, Search, Filter, History, Cloud, CloudOff, RefreshCw, AlertTriangle, Info, Edit3, X, Eye, EyeOff, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { TreasuryActions, FundLogsButton } from '../components/TreasuryPanel';
 
@@ -43,7 +45,7 @@ function PartialInput({ initialValue, dateStr, onSave }) {
   const [val, setVal] = useState(String(initialValue));
   const [hovered, setHovered] = useState(false);
   const onSaveRef = useRef(onSave);
-  
+
   useEffect(() => {
     onSaveRef.current = onSave;
   }, [onSave]);
@@ -72,8 +74,8 @@ function PartialInput({ initialValue, dateStr, onSave }) {
   };
 
   return (
-    <div 
-      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }} 
+    <div
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
       onClick={e => e.stopPropagation()}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -94,10 +96,55 @@ function PartialInput({ initialValue, dateStr, onSave }) {
 export default function FundTracker({ isOnline }) {
   const { canEditFunds, authFetch } = useAuth();
   const { isSyncing } = useSync();
-  const [employees, setEmployees] = useState([]);
+  const queryClient = useQueryClient();
+
+  // Reuse the shared employees cache — instant if Employees tab was visited first
+  const { data: employees = [] } = useQuery({
+    queryKey: ['employees', { isOnline }],
+    queryFn: async () => {
+      const localData = await getAllEmployees();
+      if (isOnline) {
+        fetchEmployees()
+          .then(list => seedEmployees(list))
+          .catch(() => { });
+      }
+      return localData;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [year, setYear] = useState(new Date().getFullYear());
-  const [payments, setPayments] = useState({}); // key: empServerId-year-month-cutoff -> { amount, modified_at }
+
+  // Fetch payments — reads localStorage immediately, syncs from API in background
+  const { data: payments = {}, refetch: refetchPayments } = useQuery({
+    queryKey: ['fund-payments', year, { isOnline }],
+    queryFn: async () => {
+      // 1. Show local data immediately
+      const saved = localStorage.getItem(`fundPayments-${year}`);
+      const localData = saved ? JSON.parse(saved) : {};
+
+      // 2. Sync from server in background
+      if (isOnline) {
+        authFetch(`${API_BASE}/fund-payments/?year=${year}`)
+          .then(res => res.ok ? res.json() : Promise.reject())
+          .then(data => {
+            const map = {};
+            data.forEach(p => {
+              const key = `${p.employee}-${p.year}-${p.month}-${p.cutoff}`;
+              map[key] = { amount: parseFloat(p.amount), date: p.modified_at ? p.modified_at.slice(0, 10) : '' };
+            });
+            localStorage.setItem(`fundPayments-${year}`, JSON.stringify(map));
+            queryClient.invalidateQueries({ queryKey: ['fund-payments', year] });
+          })
+          .catch(() => { });
+      }
+
+      return localData;
+    },
+    staleTime: 1000 * 60 * 2, // payments are more time-sensitive — 2 min
+  });
+
   const [pendingPayment, setPendingPayment] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [initialEditState, setInitialEditState] = useState(null);
@@ -105,7 +152,6 @@ export default function FundTracker({ isOnline }) {
   const [showDoneEditing, setShowDoneEditing] = useState(false);
   const [isNameCollapsed, setIsNameCollapsed] = useState(false);
   const [viewFilter, setViewFilter] = useState('active'); // 'active' | 'archived' | 'all'
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncStatus, setSyncStatus] = useState({ last_synced_at: null, spreadsheet_id: null });
   const [syncing, setSyncing] = useState(false);
@@ -120,7 +166,7 @@ export default function FundTracker({ isOnline }) {
         const data = await res.json();
         setTotalBudget(data.total_budget);
       }
-    } catch (_) {}
+    } catch (_) { }
   }, [isOnline]);
 
   const fetchSyncStatus = useCallback(async () => {
@@ -135,9 +181,7 @@ export default function FundTracker({ isOnline }) {
     if (!isOnline || syncing) return;
     setSyncing(true);
     try {
-      const res = await authFetch(`${API_BASE}/sheets-sync-now/`, {
-        method: 'POST',
-      });
+      const res = await authFetch(`${API_BASE}/sheets-sync-now/`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setSyncStatus(prev => ({ ...prev, last_synced_at: data.last_synced_at, spreadsheet_id: data.spreadsheet_id }));
@@ -158,47 +202,13 @@ export default function FundTracker({ isOnline }) {
     return new Date(isoStr).toLocaleDateString();
   }
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const emps = await getAllEmployees();
-      setEmployees(emps);
-
-      if (isOnline) {
-        try {
-          const res = await authFetch(`${API_BASE}/fund-payments/?year=${year}`);
-          if (res.ok) {
-            const data = await res.json();
-            const map = {};
-            data.forEach(p => {
-              // p.employee is the server PK integer, which equals emp.id in local IndexedDB
-              const key = `${p.employee}-${p.year}-${p.month}-${p.cutoff}`;
-              map[key] = { amount: parseFloat(p.amount), date: p.modified_at ? p.modified_at.slice(0, 10) : '' };
-            });
-            setPayments(map);
-            return;
-          }
-        } catch (_) {}
-      }
-      // Offline fallback — localStorage
-      const saved = localStorage.getItem(`fundPayments-${year}`);
-      if (saved) {
-        setPayments(JSON.parse(saved));
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [year, isOnline]);
-
-  useEffect(() => { load(); }, [load]);
-  
   const prevSyncing = useRef(isSyncing);
   useEffect(() => {
     if (prevSyncing.current && !isSyncing) {
-      load();
+      queryClient.invalidateQueries({ queryKey: ['fund-payments', year] });
     }
     prevSyncing.current = isSyncing;
-  }, [isSyncing, load]);
+  }, [isSyncing]);
 
   useEffect(() => { fetchSyncStatus(); }, [fetchSyncStatus]);
   useEffect(() => { fetchTotalBudget(); }, [fetchTotalBudget]);
@@ -211,8 +221,10 @@ export default function FundTracker({ isOnline }) {
     const prevValObj = payments[key];
     const prevAmount = prevValObj?.amount ?? 0;
 
-    setPayments(prev => {
-      const next = { ...prev, [key]: newVal };
+    // Optimistic update: instantly update the React Query cache so the UI reflects
+    // the change immediately without waiting for a network round-trip.
+    queryClient.setQueryData(['fund-payments', year, { isOnline }], prev => {
+      const next = { ...(prev || {}), [key]: newVal };
       localStorage.setItem(`fundPayments-${year}`, JSON.stringify(next));
       return next;
     });
@@ -273,7 +285,7 @@ export default function FundTracker({ isOnline }) {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const monthName = monthNames[monthIndex];
     const cutoffName = cutoff === 1 ? '15' : '31';
-    
+
     let statusName = 'Unpaid';
     if (next === 20) statusName = 'Paid (₱20)';
     if (next === 10) statusName = 'Partial (₱10)';
@@ -387,7 +399,7 @@ export default function FundTracker({ isOnline }) {
         const errData = await res.json().catch(() => ({}));
         setToastMessage({ type: 'error', message: errData?.detail || 'Failed to log fund edits.', onUndo: null });
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('Failed to log fund edits', e);
       setToastMessage({ type: 'error', message: 'Network error \u2014 fund edit not logged.', onUndo: null });
     }
@@ -594,8 +606,8 @@ export default function FundTracker({ isOnline }) {
               </p>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
                 <button className="btn btn-outline" onClick={() => setShowEditWarning(false)}>Cancel</button>
-                <button 
-                  className="btn" 
+                <button
+                  className="btn"
                   style={{ background: '#3b82f6', color: '#fff', border: 'none' }}
                   onClick={() => { setIsEditing(true); setInitialEditState({ ...payments }); setShowEditWarning(false); }}
                 >
@@ -658,7 +670,7 @@ export default function FundTracker({ isOnline }) {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {employees.length === 0 ? (
                 <tr><td colSpan={27} style={{ textAlign: 'center', padding: 40 }}>Loading...</td></tr>
               ) : visibleEmployees.length === 0 ? (
                 <tr><td colSpan={27} style={{ textAlign: 'center', padding: 40 }}>
@@ -727,7 +739,7 @@ export default function FundTracker({ isOnline }) {
           </table>
         </div>
       </div>
-      
+
       <ConfirmModal
         isOpen={!!pendingPayment}
         title="Confirm Payment Change"

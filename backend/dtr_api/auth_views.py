@@ -134,7 +134,13 @@ def token_refresh_view(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me_view(request):
-    """Returns the currently authenticated user's profile data."""
+    """Returns the currently authenticated user's profile data. Also stamps last_seen."""
+    from django.utils import timezone
+    try:
+        request.user.profile.last_seen = timezone.now()
+        request.user.profile.save(update_fields=['last_seen'])
+    except Exception:
+        pass
     return Response(_profile_data(request.user))
 
 
@@ -234,6 +240,55 @@ def logout_view(request):
         except TokenError:
             pass  # Already invalid — that's fine
     return Response({'message': 'Logged out successfully.'})
+
+
+# ─── POST /api/auth/heartbeat/ ───────────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def heartbeat_view(request):
+    """
+    Lightweight ping called every 10 seconds by authenticated clients.
+    Updates last_seen on the user's profile so the online-users list stays fresh.
+    """
+    from django.utils import timezone
+    try:
+        request.user.profile.last_seen = timezone.now()
+        request.user.profile.save(update_fields=['last_seen'])
+    except Exception:
+        pass
+    return Response({'ok': True})
+
+
+# ─── GET /api/auth/online-users/ ─────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def online_users_view(request):
+    """
+    Returns a list of users who have been seen in the last 30 seconds.
+    Used by the Dashboard's Online Users panel (polled every 10s).
+    """
+    from django.utils import timezone
+    from datetime import timedelta
+    threshold = timezone.now() - timedelta(seconds=30)
+    profiles = (
+        UserProfile.objects
+        .filter(last_seen__gte=threshold, user__is_active=True)
+        .select_related('user', 'employee')
+        .order_by('-last_seen')
+    )
+    data = []
+    for p in profiles:
+        emp = p.employee
+        data.append({
+            'id': p.user.id,
+            'username': p.user.username,
+            'name': emp.name if emp else p.user.username,
+            'role': p.role,
+            'office': emp.office if emp else None,
+            'profile_pic': p.profile_pic,
+            'last_seen': p.last_seen.isoformat(),
+        })
+    return Response(data)
 
 
 # ─── GET /api/auth/users/ ─────────────────────────────────────────────────────

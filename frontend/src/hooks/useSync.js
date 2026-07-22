@@ -36,6 +36,18 @@ export async function fetchDashboardStats() {
   return apiFetch('/dashboard/');
 }
 
+export async function fetchOnlineUsers() {
+  return apiFetch('/auth/online-users/');
+}
+
+export async function sendHeartbeat() {
+  return apiFetch('/auth/heartbeat/', { method: 'POST' });
+}
+
+export async function fetchTreasurySummary() {
+  return apiFetch('/treasury/summary/');
+}
+
 // ── Employee write helpers ────────────────────────────────────────────────────
 export async function createServerEmployee(emp) {
   return apiFetch('/employees/', {

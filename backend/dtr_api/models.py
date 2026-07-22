@@ -57,6 +57,7 @@ class UserProfile(models.Model):
     employee = models.OneToOneField(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='user_profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Member')
     profile_pic = models.URLField(max_length=500, blank=True, null=True)  # Cloudinary URL
+    last_seen = models.DateTimeField(null=True, blank=True)  # Updated on every authenticated request
 
     def __str__(self):
         return f"{self.user.username} - {self.role}"

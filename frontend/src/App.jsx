@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
+
+const queryClient = new QueryClient();
 import Dashboard from './pages/Dashboard';
 import MemberDashboard from './pages/MemberDashboard';
 import Employees from './pages/Employees';
@@ -37,22 +40,37 @@ function AuthenticatedApp() {
   const [page, setPage] = useState(defaultPage);
 
   const navItems = [
-    ...(isOfficer
-      ? [{ id: 'dashboard',  label: 'Dashboard',       icon: <LayoutDashboard size={18} /> }]
-      : []),
-    { id: 'my-dashboard',   label: 'My Dashboard',    icon: <Home size={18} /> },
-    { id: 'employees',      label: 'Employees',        icon: <Users size={18} /> },
+    { type: 'header', label: 'OVERVIEW' },
+    {
+      id: 'dashboards',
+      label: 'Dashboard',
+      icon: <LayoutDashboard size={18} />,
+      subItems: isOfficer ? [
+        { id: 'dashboard', label: 'System' },
+        { id: 'my-dashboard', label: 'Me' }
+      ] : [],
+      fallbackId: 'my-dashboard'
+    },
+
+    { type: 'header', label: 'EMPLOYEES' },
+    { id: 'employees', label: 'Employees', icon: <Users size={18} /> },
     ...(canCreateDTR
       ? [
-          { id: 'generator', label: 'Generate DTR',   icon: <SettingsIcon size={18} /> },
-          { id: 'review',    label: 'Review & Export', icon: <Printer size={18} /> },
-        ]
+        { id: 'users', label: 'User Management', icon: <ShieldAlert size={18} /> },
+
+      ]
       : []),
-    { id: 'funds',          label: 'Fund Tracker',     icon: <Wallet size={18} /> },
+
+    { type: 'header', label: 'FINANCE' },
+    { id: 'funds', label: 'SA Fund', icon: <Wallet size={18} /> },
+
+    { type: 'header', label: 'SYSTEM' },
     ...(isSuperAdmin
-      ? [{ id: 'users',     label: 'User Management',  icon: <ShieldAlert size={18} /> }]
+      ? [
+        { id: 'generator', label: 'Generate DTR', icon: <SettingsIcon size={18} /> },
+        { id: 'review', label: 'Review & Export', icon: <Printer size={18} /> }]
       : []),
-    { id: 'settings',       label: 'User Settings',    icon: <UserCircle size={18} /> },
+    { id: 'settings', label: 'User Settings', icon: <UserCircle size={18} /> },
   ];
 
   function navigate(id) {
@@ -61,6 +79,7 @@ function AuthenticatedApp() {
   }
 
   function SidebarContent({ mobile }) {
+    const [hoverDashboard, setHoverDashboard] = useState(false);
     return (
       <aside className={`sidebar ${mobile ? 'sidebar-mobile' : 'sidebar-desktop'}`}>
         {/* Brand */}
@@ -81,18 +100,116 @@ function AuthenticatedApp() {
 
         {/* Nav */}
         <nav className="sidebar-nav">
-          <div className="sidebar-section-label">NAVIGATION</div>
-          {navItems.map(n => (
-            <button
-              key={n.id}
-              className={`sidebar-nav-item ${page === n.id ? 'active' : ''}`}
-              onClick={() => navigate(n.id)}
-            >
-              <span className="sidebar-nav-icon">{n.icon}</span>
-              <span className="sidebar-nav-label">{n.label}</span>
-              {page === n.id && <ChevronRight size={14} className="sidebar-nav-arrow" />}
-            </button>
-          ))}
+          {navItems.map((n, idx) => {
+            if (n.type === 'header') {
+              return (
+                <div key={`hdr-${idx}`} className="sidebar-section-label" style={{ marginTop: idx === 0 ? 0 : 20 }}>
+                  {n.label}
+                </div>
+              );
+            }
+            if (n.subItems && n.subItems.length > 0) {
+              const isActive = n.subItems.some(sub => sub.id === page);
+              return (
+                <div
+                  key={n.id}
+                  onMouseEnter={() => !mobile && setHoverDashboard(true)}
+                  onMouseLeave={() => !mobile && setHoverDashboard(false)}
+                  style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}
+                >
+                  <button
+                    className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => navigate(n.fallbackId || n.id)}
+                  >
+                    <span className="sidebar-nav-icon">{n.icon}</span>
+                    <span className="sidebar-nav-label">{n.label}</span>
+                    {(mobile ? true : (hoverDashboard || isActive)) && (
+                      <ChevronRight
+                        size={14}
+                        className="sidebar-nav-arrow"
+                        style={mobile ? {
+                          transform: isActive ? 'rotate(90deg)' : 'none',
+                          transition: 'transform 0.2s ease',
+                          opacity: isActive ? 1 : 0.5
+                        } : {}}
+                      />
+                    )}
+                  </button>
+
+                  {/* Desktop Pop-out */}
+                  {!mobile && hoverDashboard && (
+                    <div style={{
+                      position: 'absolute',
+                      left: '100%',
+                      top: -6, // offset slightly to align better visually with padding
+                      paddingLeft: 4,
+                      paddingTop: 6,
+                      paddingBottom: 6,
+                      zIndex: 999
+                    }}>
+                      <div style={{
+                        background: '#1e293b',
+                        border: '1px solid #334155',
+                        borderRadius: 8,
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15)',
+                        padding: 6,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
+                        minWidth: 160
+                      }}>
+                        {n.subItems.map(sub => (
+                          <button
+                            key={sub.id}
+                            className={`sidebar-nav-item ${page === sub.id ? 'active' : ''}`}
+                            style={{ minHeight: 'auto', padding: '8px 12px', fontSize: '0.85rem', width: '100%', margin: 0 }}
+                            onClick={() => navigate(sub.id)}
+                          >
+                            <span className="sidebar-nav-label" style={{ fontWeight: page === sub.id ? 600 : 400 }}>{sub.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mobile Accordion */}
+                  {mobile && isActive && (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      paddingLeft: 34,
+                      marginTop: 2,
+                      marginBottom: 8
+                    }}>
+                      {n.subItems.map(sub => (
+                        <button
+                          key={sub.id}
+                          className={`sidebar-nav-item ${page === sub.id ? 'active' : ''}`}
+                          style={{ minHeight: 'auto', padding: '6px 12px', fontSize: '0.85rem', width: '100%', margin: 0 }}
+                          onClick={() => navigate(sub.id)}
+                        >
+                          <span className="sidebar-nav-label" style={{ fontWeight: page === sub.id ? 600 : 400 }}>{sub.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={n.id}
+                className={`sidebar-nav-item ${page === n.id ? 'active' : ''}`}
+                onClick={() => navigate(n.fallbackId || n.id)}
+              >
+                <span className="sidebar-nav-icon">{n.icon}</span>
+                <span className="sidebar-nav-label">{n.label}</span>
+                {page === n.id && <ChevronRight size={14} className="sidebar-nav-arrow" />}
+              </button>
+            );
+          })}
         </nav>
 
         {/* User card at bottom */}
@@ -109,7 +226,7 @@ function AuthenticatedApp() {
           </div>
           <button className="sidebar-signout-btn" onClick={() => setShowLogoutModal(true)} title="Sign Out">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
             </svg>
           </button>
         </div>
@@ -153,14 +270,14 @@ function AuthenticatedApp() {
         </header>
 
         <main className="app-main">
-          {page === 'dashboard'    && isOfficer    && <Dashboard isOnline={isOnline} setPage={setPage} />}
-          {page === 'my-dashboard'                 && <MemberDashboard isOnline={isOnline} />}
-          {page === 'employees'                    && <Employees isOnline={isOnline} />}
-          {page === 'generator'    && canCreateDTR  && <Generator isOnline={isOnline} onDone={() => setPage('review')} />}
-          {page === 'review'       && canCreateDTR  && <Review isOnline={isOnline} />}
-          {page === 'funds'                        && <FundTracker isOnline={isOnline} />}
-          {page === 'settings'                     && <UserSettings />}
-          {page === 'users'        && isSuperAdmin   && <UserManagement />}
+          {page === 'dashboard' && isOfficer && <Dashboard isOnline={isOnline} setPage={setPage} />}
+          {page === 'my-dashboard' && <MemberDashboard isOnline={isOnline} />}
+          {page === 'employees' && <Employees isOnline={isOnline} />}
+          {page === 'generator' && canCreateDTR && <Generator isOnline={isOnline} onDone={() => setPage('review')} />}
+          {page === 'review' && canCreateDTR && <Review isOnline={isOnline} />}
+          {page === 'funds' && <FundTracker isOnline={isOnline} />}
+          {page === 'settings' && <UserSettings />}
+          {page === 'users' && isSuperAdmin && <UserManagement />}
         </main>
       </div>
 
@@ -202,9 +319,17 @@ function AppInner() {
 }
 
 export default function App() {
+  useEffect(() => {
+    const handleOnline = () => queryClient.invalidateQueries({ queryKey: ['employees'] });
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
+
   return (
-    <AuthProvider>
-      <AppInner />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <AppInner />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }

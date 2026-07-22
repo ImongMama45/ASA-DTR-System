@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter } from 'lucide-react';
 import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees } from '../db';
@@ -111,8 +112,27 @@ function downloadFile(content, filename, mime) {
 
 export default function Employees({ isOnline }) {
   const { canManageEmployees, isSuperAdmin, authFetch } = useAuth();
+  const queryClient = useQueryClient();
 
-  const [employees, setEmployees] = useState([]);
+  const { data: employees = [], isLoading } = useQuery({
+    // Include isOnline in the key so a change from false→true triggers a fresh fetch
+    queryKey: ['employees', { isOnline }],
+    queryFn: async () => {
+      // 1. Read local IndexedDB immediately — this is instant and populates the UI right away
+      const localData = await getAllEmployees();
+
+      // 2. If online, sync from the server in the background — don't block the return
+      if (isOnline) {
+        fetchEmployees()
+          .then(list => seedEmployees(list))
+          .then(() => queryClient.invalidateQueries({ queryKey: ['employees'] }))
+          .catch(() => { /* offline / server error — local data is fine */ });
+      }
+
+      return localData;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dutyFilter, setDutyFilter] = useState('all');
@@ -133,15 +153,6 @@ export default function Employees({ isOnline }) {
   const [importing, setImporting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const fileInputRef = useRef();
-
-  useEffect(() => { load(); }, [isOnline]);
-
-  async function load() {
-    if (isOnline) {
-      try { const list = await fetchEmployees(); await seedEmployees(list); } catch { /* offline */ }
-    }
-    setEmployees(await getAllEmployees());
-  }
 
   function setField(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function setUField(k, v) { setUserForm(f => ({ ...f, [k]: v })); }
@@ -190,8 +201,6 @@ export default function Employees({ isOnline }) {
             setMsg({ type: 'success', text: `Employee saved & user account "${userForm.username}" created!` });
           }
         }
-        const list = await fetchEmployees();
-        await seedEmployees(list);
       } else {
         if (form.id) await updateEmployee({ ...data, id: form.id });
         else await addEmployee(data);
@@ -205,21 +214,42 @@ export default function Employees({ isOnline }) {
 
     setSaving(false);
     clearForm();
-    load();
+    queryClient.invalidateQueries({ queryKey: ['employees'] });
     setTimeout(() => setMsg(null), 4000);
   }
 
   async function executeDelete() {
     if (!deleteTarget) return;
     const id = deleteTarget.id;
-    if (isOnline) {
-      try { await deleteServerEmployee(id); const list = await fetchEmployees(); await seedEmployees(list); }
-      catch { await deleteEmployee(id); }
+    const isArchived = deleteTarget.is_active === false;
+
+    if (isArchived && deleteTarget._action === 'activate') {
+      // Re-activate: send a PATCH to set is_active=true
+      if (isOnline) {
+        try {
+          await updateServerEmployee(id, { ...deleteTarget, is_active: true });
+        } catch { /* local fallback not implemented for activate */ }
+      }
+    } else if (isArchived && deleteTarget._action === 'delete') {
+      // Hard delete
+      if (isOnline) {
+        try { await deleteServerEmployee(id); }
+        catch { await deleteEmployee(id); }
+      } else {
+        await deleteEmployee(id);
+      }
     } else {
-      await deleteEmployee(id);
+      // Normal archive of an active employee
+      if (isOnline) {
+        try { await deleteServerEmployee(id); }
+        catch { await deleteEmployee(id); }
+      } else {
+        await deleteEmployee(id);
+      }
     }
+
     setDeleteTarget(null);
-    load();
+    queryClient.invalidateQueries({ queryKey: ['employees'] });
   }
 
   function edit(emp) {
@@ -266,7 +296,7 @@ export default function Employees({ isOnline }) {
     if (isOnline) { try { const list = await fetchEmployees(); await seedEmployees(list); } catch { } }
     setImportStatus({ ok, skipped, errors });
     setImporting(false);
-    load();
+    queryClient.invalidateQueries({ queryKey: ['employees'] });
   }
 
   function exportCSV() {
@@ -545,7 +575,15 @@ export default function Employees({ isOnline }) {
                   </div>
                   <div className="emp-actions">
                     {canManageEmployees && <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>}
-                    {isSuperAdmin && <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget(emp)}>Archive</button>}
+                    {isSuperAdmin && emp.is_active !== false && (
+                      <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'archive' })}>Archive</button>
+                    )}
+                    {isSuperAdmin && emp.is_active === false && (
+                      <>
+                        <button className="btn btn-sm btn-success" style={{ background: '#22c55e', color: '#fff', border: 'none' }} onClick={() => setDeleteTarget({ ...emp, _action: 'activate' })}>Activate</button>
+                        <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'delete' })}>Delete Permanently</button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -560,14 +598,34 @@ export default function Employees({ isOnline }) {
       {deleteTarget && (
         <div className="modal-overlay">
           <div className="modal-content card" style={{ margin: 0 }}>
-            <h3 style={{ marginTop: 0, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <AlertTriangle size={20} /> Confirm Archive
+            <h3 style={{ marginTop: 0, color: deleteTarget?._action === 'activate' ? '#22c55e' : 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={20} />
+              {deleteTarget?._action === 'activate' ? 'Confirm Activate' : deleteTarget?._action === 'delete' ? 'Confirm Permanent Delete' : 'Confirm Archive'}
             </h3>
-            <p style={{ margin: '16px 0' }}>Archive <strong>{deleteTarget.name}</strong>? Their fund history will be preserved.</p>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Their login account (if any) will also be disabled.</p>
+            {deleteTarget?._action === 'activate' && (
+              <p style={{ margin: '16px 0' }}>Re-activate <strong>{deleteTarget.name}</strong>? They will appear as an active employee again.</p>
+            )}
+            {deleteTarget?._action === 'delete' && (
+              <>
+                <p style={{ margin: '16px 0' }}>Permanently delete <strong>{deleteTarget.name}</strong>? This cannot be undone.</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Their fund history and login account (if any) will also be removed.</p>
+              </>
+            )}
+            {(!deleteTarget?._action || deleteTarget?._action === 'archive') && (
+              <>
+                <p style={{ margin: '16px 0' }}>Archive <strong>{deleteTarget?.name}</strong>? Their fund history will be preserved.</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Their login account (if any) will also be disabled.</p>
+              </>
+            )}
             <div className="btn-row" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={executeDelete}>Yes, Archive</button>
+              <button
+                className={`btn ${deleteTarget?._action === 'activate' ? 'btn-success' : 'btn-danger'}`}
+                style={deleteTarget?._action === 'activate' ? { background: '#22c55e', color: '#fff', border: 'none' } : {}}
+                onClick={executeDelete}
+              >
+                {deleteTarget?._action === 'activate' ? 'Yes, Activate' : deleteTarget?._action === 'delete' ? 'Yes, Delete Permanently' : 'Yes, Archive'}
+              </button>
             </div>
           </div>
         </div>

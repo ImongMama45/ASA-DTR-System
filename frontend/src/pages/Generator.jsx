@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getAllEmployees, saveBatch, seedEmployees, seedBatches } from '../db';
 import {
   MONTH_NAMES, DAY_NAMES, getDatesInCutoff, getWeeks,
@@ -10,7 +11,23 @@ import { AlertTriangle, Users, CalendarDays, CheckCircle2, Check, X, Calendar, L
 
 export default function Generator({ onDone, isOnline }) {
   const [step, setStep] = useState(1);
-  const [allEmployees, setAllEmployees] = useState([]);   // everyone in DB
+
+  // Reuse the shared employees cache — instant if Employees tab was visited first.
+  // If not, reads IndexedDB immediately and syncs from server in background.
+  const { data: allEmployees = [] } = useQuery({
+    queryKey: ['employees', { isOnline }],
+    queryFn: async () => {
+      const localData = await getAllEmployees();
+      if (isOnline) {
+        fetchEmployees()
+          .then(list => seedEmployees(list))
+          .catch(() => {});
+      }
+      return localData;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
   const [employees, setEmployees] = useState([]);          // subset chosen in step 1
   const [selectedIds, setSelectedIds] = useState(new Set()); // for manual pick UI
   const [pickMode, setPickMode] = useState(null);        // 'all' | 'manual' | null
@@ -28,24 +45,14 @@ export default function Generator({ onDone, isOnline }) {
   const [globalHolidays, setGlobalHolidays] = useState(new Set());
   const [showHolidayModal, setShowHolidayModal] = useState(false);
 
-  useEffect(() => { loadEmployees(); }, [isOnline]);
-
-  async function loadEmployees() {
-    if (isOnline) {
-      try {
-        const list = await fetchEmployees();
-        await seedEmployees(list);
-      } catch { /* use local */ }
-    }
-    const list = await getAllEmployees();
-    setAllEmployees(list);
-  }
+  // Only active employees should be selectable for DTR generation
+  const activeEmployees = allEmployees.filter(e => e.is_active !== false);
 
   // ── Step 1 helpers ────────────────────────────────────────────────────────
 
   function chooseModeAll() {
     setPickMode('all');
-    setSelectedIds(new Set(allEmployees.map(e => e.id)));
+    setSelectedIds(new Set(activeEmployees.map(e => e.id)));
   }
 
   function chooseModeManual() {
@@ -61,7 +68,7 @@ export default function Generator({ onDone, isOnline }) {
     });
   }
 
-  function selectAll() { setSelectedIds(new Set(allEmployees.map(e => e.id))); }
+  function selectAll() { setSelectedIds(new Set(activeEmployees.map(e => e.id))); }
   function deselectAll() { setSelectedIds(new Set()); }
 
   function proceedFromStep1() {
@@ -210,7 +217,7 @@ export default function Generator({ onDone, isOnline }) {
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Users size={18} /> All Employees</div>
                 <div style={{ fontSize: '0.75rem', fontWeight: 400, marginTop: 4, opacity: 0.85 }}>
-                  Generate DTR for everyone ({allEmployees.length})
+                  Generate DTR for everyone ({activeEmployees.length})
                 </div>
               </button>
               <button
@@ -230,10 +237,10 @@ export default function Generator({ onDone, isOnline }) {
           {pickMode === 'all' && (
             <>
               <div className="alert alert-success" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <CheckCircle2 size={16} /> All <strong>{allEmployees.length}</strong> employee(s) selected.
+                <CheckCircle2 size={16} /> All <strong>{activeEmployees.length}</strong> active employee(s) selected.
               </div>
               <div className="emp-list" style={{ maxHeight: 320, overflowY: 'auto' }}>
-                {allEmployees.map(emp => (
+                {activeEmployees.map(emp => (
                   <div className="emp-item" key={emp.id} style={{ opacity: 0.85 }}>
                     <div className="emp-avatar">{emp.name.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
                     <div style={{ flex: 1 }}>
@@ -258,7 +265,7 @@ export default function Generator({ onDone, isOnline }) {
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '12px 0 8px' }}>
                 <span style={{ fontSize: '0.85rem', color: '#555' }}>
-                  {selectedIds.size} / {allEmployees.length} selected
+                  {selectedIds.size} / {activeEmployees.length} selected
                 </span>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-sm btn-outline" onClick={selectAll}>Select All</button>
@@ -270,7 +277,7 @@ export default function Generator({ onDone, isOnline }) {
                 className="emp-list"
                 style={{ maxHeight: 380, overflowY: 'auto', gap: 6 }}
               >
-                {allEmployees.map(emp => {
+                {activeEmployees.map(emp => {
                   const active = selectedIds.has(emp.id);
                   return (
                     <div

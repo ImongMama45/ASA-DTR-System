@@ -36,6 +36,8 @@ urlpatterns = [
     path('auth/users/create/', auth_views.create_user_view, name='auth-users-create'),
     path('auth/set-role/<int:user_id>/', auth_views.set_role_view, name='auth-set-role'),
     path('auth/toggle-active/<int:user_id>/', auth_views.toggle_active_view, name='auth-toggle-active'),
+    path('auth/heartbeat/', auth_views.heartbeat_view, name='auth-heartbeat'),
+    path('auth/online-users/', auth_views.online_users_view, name='auth-online-users'),
     path('attachments/upload/', views.attachment_upload, name='attachment-upload'),
     path('attachments/<int:attachment_id>/download/', views.attachment_download, name='attachment-download'),
 ]

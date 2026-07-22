@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAllBatches, updateBatch, seedBatches } from '../db';
 import DTRStrip from '../components/DTRStrip';
 import { exportToDocx } from '../utils/exportDocx';
@@ -6,28 +7,38 @@ import { fetchBatches, updateServerBatch } from '../hooks/useSync';
 import { FileText, Download, Save, Info, Printer, Loader2 } from 'lucide-react';
 
 export default function Review({ isOnline }) {
-  const [batches, setBatches] = useState([]);
+  const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState('');
   const [batch, setBatch] = useState(null);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => { load(); }, [isOnline]);
+  const { data: batches = [] } = useQuery({
+    queryKey: ['batches', { isOnline }],
+    queryFn: async () => {
+      // 1. Read from IndexedDB immediately — instant render
+      const all = await getAllBatches();
+      const sorted = all.sort((a, b) => b.createdAt - a.createdAt);
 
-  async function load() {
-    if (isOnline) {
-      try {
-        const list = await fetchBatches();
-        await seedBatches(list);
-      } catch (e) { /* use local */ }
+      // 2. Sync from server in background
+      if (isOnline) {
+        fetchBatches()
+          .then(list => seedBatches(list))
+          .then(() => queryClient.invalidateQueries({ queryKey: ['batches'] }))
+          .catch(() => {});
+      }
+
+      return sorted;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Auto-select first batch when the list first loads
+  useEffect(() => {
+    if (batches.length > 0 && !selectedId) {
+      setSelectedId(String(batches[0].id));
+      setBatch(batches[0]);
     }
-    const all = await getAllBatches();
-    const sorted = all.sort((a, b) => b.createdAt - a.createdAt);
-    setBatches(sorted);
-    if (sorted.length > 0 && !selectedId) {
-      setSelectedId(String(sorted[0].id));
-      setBatch(sorted[0]);
-    }
-  }
+  }, [batches]);
 
   function selectBatch(id) {
     setSelectedId(id);
