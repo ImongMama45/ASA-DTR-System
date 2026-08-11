@@ -236,3 +236,19 @@ export function generateTime(duty, hoursPerDay, seed) {
 export function cutoffLabel(month, year, cutoff) {
   return `${MONTH_NAMES[month - 1]} ${cutoff === 1 ? '1-15' : '16-31'}, ${year}`;
 }
+
+export function formatUserId(id, duty, dateString, fallbackDateString) {
+  if (!id) return 'N/A';
+  const dutyCode = String(duty || '').toUpperCase() === 'PM' ? '2' : '1';
+  let year = new Date().getFullYear();
+  
+  if (dateString) {
+    const d = new Date(dateString);
+    if (!isNaN(d)) year = d.getFullYear();
+  } else if (fallbackDateString) {
+    const d = new Date(fallbackDateString);
+    if (!isNaN(d)) year = d.getFullYear();
+  }
+  
+  return `ASA${dutyCode}-${year}${id}`;
+}

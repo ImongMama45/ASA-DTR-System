@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Camera, Key, Activity, Users, Save, Check, Eye, EyeOff } from 'lucide-react';
 import Toast from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
+import { formatUserId } from '../utils/dateUtils';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
@@ -400,7 +401,7 @@ export default function UserSettings() {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>User ID</label>
-                  <div style={{ fontSize: 14, color: '#94a3b8', padding: '10px 0' }}>{user?.id}</div>
+                  <div style={{ fontSize: 14, color: '#94a3b8', padding: '10px 0' }}>{formatUserId(user?.id, user?.duty, user?.date_joined)}</div>
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>Username</label>
@@ -436,7 +437,7 @@ export default function UserSettings() {
                 </div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>User ID</div>
-                  <div style={{ fontSize: 13, color: '#64748b' }}>{user?.id}</div>
+                  <div style={{ fontSize: 13, color: '#64748b' }}>{formatUserId(user?.id, user?.duty, user?.date_joined)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>Username</div>

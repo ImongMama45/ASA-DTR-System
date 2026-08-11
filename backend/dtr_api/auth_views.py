@@ -36,6 +36,7 @@ def _profile_data(user):
             'start_date': emp.start_date.isoformat() if emp and emp.start_date else None,
             'has_usable_password': user.has_usable_password(),
             'profile_pic': profile.profile_pic,
+            'date_joined': user.date_joined.isoformat() if user.date_joined else None,
         }
     except UserProfile.DoesNotExist:
         return {
@@ -328,6 +329,8 @@ def users_list_view(request):
             'is_active': u.is_active,
             'has_usable_password': u.has_usable_password(),
             'profile_pic': profile_pic,
+            'duty': emp.duty if emp else 'AM',
+            'date_joined': u.date_joined.isoformat() if u.date_joined else None
         })
 
     return Response(data)

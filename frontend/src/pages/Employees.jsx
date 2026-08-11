@@ -13,6 +13,7 @@ import {
 } from '../hooks/useSync';
 import QRCode from 'qrcode';
 import FileUpload from '../components/FileUpload';
+import { formatUserId } from '../utils/dateUtils';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
@@ -612,7 +613,10 @@ export default function Employees({ isOnline }) {
                         )}
                       </div>
                       <div style={{ flex: 1 }}>
-                        <div className="emp-name">{emp.name}</div>
+                        <div className="emp-name" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {emp.name}
+                          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{formatUserId(emp.id, emp.duty, emp.start, emp.createdAt)}</span>
+                        </div>
                         <div className="emp-meta">
                           <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
                           {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}

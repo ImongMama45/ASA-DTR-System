@@ -4,6 +4,7 @@ import { Search, RefreshCw, ShieldAlert, KeyRound, UserCog, Lock, CheckCircle2, 
 import { getAllEmployees, seedEmployees } from '../db';
 import { fetchEmployees } from '../hooks/useSync';
 import Toast from '../components/Toast';
+import { formatUserId } from '../utils/dateUtils';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
@@ -218,7 +219,7 @@ export default function UserManagement({ isOnline }) {
                   return (
                     <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9', opacity: u.is_active ? 1 : 0.55 }}>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#94a3b8', fontSize: 13 }}>
-                        {u.id}
+                        {formatUserId(u.id, u.duty, u.date_joined)}
                       </td>
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>
                         {u.username}{isSelf && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 6, fontWeight: 700 }}>(You)</span>}
