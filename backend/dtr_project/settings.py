@@ -111,6 +111,8 @@ REST_FRAMEWORK = {
         'anon': '100/day',
         'user': '1000/day',
         'login': '10/minute',   # Applied only to the login endpoint
+        'attendance_live': '60/minute',   # 5s polling on /attendance/live/
+        'attendance_anomalies': '30/minute',  # Polled on /attendance/anomalies/
     },
 }
 

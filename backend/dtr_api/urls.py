@@ -40,4 +40,17 @@ urlpatterns = [
     path('auth/online-users/', auth_views.online_users_view, name='auth-online-users'),
     path('attachments/upload/', views.attachment_upload, name='attachment-upload'),
     path('attachments/<int:attachment_id>/download/', views.attachment_download, name='attachment-download'),
+
+    # ── Attendance System ──────────────────────────────────────────────────
+    path('attendance/scan/', views.attendance_scan, name='attendance-scan'),
+    path('attendance/scan-status/', views.attendance_scan_status, name='attendance-scan-status'),
+    path('attendance/stats/', views.attendance_stats, name='attendance-stats'),
+    path('attendance/history/', views.attendance_history, name='attendance-history'),
+    path('attendance/live/', views.attendance_live, name='attendance-live'),
+    path('attendance/anomalies/', views.attendance_anomalies, name='attendance-anomalies'),
+    path('attendance/anomalies/<int:anomaly_id>/review/', views.attendance_anomaly_review, name='attendance-anomaly-review'),
+    path('attendance/manual/', views.attendance_manual, name='attendance-manual'),
+    path('attendance/employee/<int:employee_id>/', views.attendance_employee, name='attendance-employee'),
+    path('attendance/generate-qr/<int:employee_id>/', views.attendance_generate_qr, name='attendance-generate-qr'),
+    path('attendance/tardiness/', views.attendance_tardiness, name='attendance-tardiness'),
 ]

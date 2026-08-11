@@ -12,9 +12,11 @@ import Review from './pages/Review';
 import FundTracker from './pages/FundTracker';
 import UserManagement from './pages/UserManagement';
 import UserSettings from './pages/Settings';
+import LiveAttendance from './pages/LiveAttendance';
+import CameraModal from './components/CameraModal';
 import ConfirmModal from './components/ConfirmModal';
 import { useSync } from './hooks/useSync';
-import { LayoutDashboard, Home, Users, Settings as SettingsIcon, Printer, Wallet, ShieldAlert, GraduationCap, UserCircle, Menu, X, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Home, Users, Settings as SettingsIcon, Printer, Wallet, ShieldAlert, GraduationCap, UserCircle, Menu, X, ChevronRight, Activity, Camera } from 'lucide-react';
 import './App.css';
 
 const PAGE_LABELS = {
@@ -26,14 +28,16 @@ const PAGE_LABELS = {
   funds: 'Fund Tracker',
   users: 'User Management',
   settings: 'User Settings',
+  'live-attendance': 'Live Attendance',
 };
 
 // ─── Inner app — only rendered when authenticated ─────────────────────────────
 function AuthenticatedApp() {
-  const { user, logout, isSuperAdmin, canManageEmployees, canCreateDTR } = useAuth();
+  const { user, logout, isSuperAdmin, canManageEmployees, canCreateDTR, canScanAttendance } = useAuth();
   const { isOnline, isSyncing } = useSync();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   const isOfficer = ['SuperAdmin', 'President', 'Vice President'].includes(user?.role);
   const defaultPage = isOfficer ? 'dashboard' : 'my-dashboard';
@@ -67,6 +71,7 @@ function AuthenticatedApp() {
     { type: 'header', label: 'SYSTEM' },
     ...(isSuperAdmin
       ? [
+        { id: 'live-attendance', label: 'Live Attendance', icon: <Activity size={18} /> },
         { id: 'generator', label: 'Generate DTR', icon: <SettingsIcon size={18} /> },
         { id: 'review', label: 'Review & Export', icon: <Printer size={18} /> }]
       : []),
@@ -255,6 +260,18 @@ function AuthenticatedApp() {
             <div className="topbar-page-title">{PAGE_LABELS[page] || 'DTR System'}</div>
           </div>
           <div className="topbar-right">
+            {canScanAttendance && (
+              <button
+                onClick={() => setIsCameraOpen(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                  background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8,
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer', marginRight: 12,
+                }}
+              >
+                <Camera size={16} /> Scan QR
+              </button>
+            )}
             {isSyncing && <span className="status-badge syncing">↻ Syncing…</span>}
             <span className={`status-badge ${isOnline ? 'online' : 'offline'}`}>
               {isOnline ? '● Online' : '○ Offline'}
@@ -278,8 +295,15 @@ function AuthenticatedApp() {
           {page === 'funds' && <FundTracker isOnline={isOnline} />}
           {page === 'settings' && <UserSettings />}
           {page === 'users' && isSuperAdmin && <UserManagement />}
+          {page === 'live-attendance' && isSuperAdmin && <LiveAttendance />}
         </main>
       </div>
+
+      <CameraModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        currentEmployeeId={user?.employee_id}
+      />
 
       <ConfirmModal
         isOpen={showLogoutModal}

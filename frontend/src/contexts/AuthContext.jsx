@@ -121,6 +121,7 @@ export function AuthProvider({ children }) {
     canCreateDTR: ['SuperAdmin', 'President', 'Vice President', 'Secretary'].includes(user?.role),
     canEditFunds: ['SuperAdmin', 'President', 'Vice President', 'Treasurer'].includes(user?.role),
     canManageUsers: user?.role === 'SuperAdmin',
+    canScanAttendance: !!user?.role && user?.role !== 'Member',
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

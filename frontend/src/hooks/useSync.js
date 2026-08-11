@@ -48,15 +48,88 @@ export async function fetchTreasurySummary() {
   return apiFetch('/treasury/summary/');
 }
 
+// ── Attendance helpers ─────────────────────────────────────────────────────────
+export async function scanAttendance(qrPayload, intent, location = '') {
+  const res = await fetch(`${API_BASE}/attendance/scan/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ qr_payload: qrPayload, intent, location }),
+  });
+  if (!res.ok) {
+    let errData;
+    try { errData = await res.json(); } catch { }
+    if (errData) throw errData; // Throw the actual JSON so the caller can read `blocked`, `error`, etc.
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function checkScanStatus(qrPayload) {
+  const res = await fetch(`${API_BASE}/attendance/scan-status/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ qr_payload: qrPayload }),
+  });
+  if (!res.ok) {
+    let errData;
+    try { errData = await res.json(); } catch { }
+    if (errData) throw errData;
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchLiveAttendance() {
+  return apiFetch('/attendance/live/');
+}
+
+export async function fetchAttendanceAnomalies(reviewed = null) {
+  const qs = reviewed !== null ? `?reviewed=${reviewed}` : '';
+  return apiFetch(`/attendance/anomalies/${qs}`);
+}
+
+export async function dismissAnomaly(anomalyId) {
+  return apiFetch(`/attendance/anomalies/${anomalyId}/review/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'dismiss' }),
+  });
+}
+
+export async function submitManualAttendance(formData) {
+  // Uses FormData for file upload (proof_image)
+  const token = localStorage.getItem('access_token');
+  const res = await fetch(`${API_BASE}/attendance/manual/`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchEmployeeAttendance(employeeId, params = {}) {
+  const qs = new URLSearchParams(params).toString();
+  return apiFetch(`/attendance/employee/${employeeId}/${qs ? '?' + qs : ''}`);
+}
+
+export async function fetchQRPayload(employeeId) {
+  return apiFetch(`/attendance/generate-qr/${employeeId}/`);
+}
+
+export async function reissueQRPayload(employeeId) {
+  return apiFetch(`/attendance/generate-qr/${employeeId}/`, { method: 'POST' });
+}
+
 // ── Employee write helpers ────────────────────────────────────────────────────
 export async function createServerEmployee(emp) {
   return apiFetch('/employees/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      name: emp.name, 
-      duty: emp.duty, 
-      office: emp.office || null, 
+    body: JSON.stringify({
+      name: emp.name,
+      duty: emp.duty,
+      office: emp.office || null,
       start_date: emp.start || null,
       replaced_employee_id: emp.replacedEmployeeId || null,
       replaced_local_id: emp.replacedLocalId || null

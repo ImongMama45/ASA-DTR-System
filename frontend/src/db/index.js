@@ -46,7 +46,9 @@ export async function addEmployee(emp) {
 }
 export async function updateEmployee(emp) {
   const db = await initDB();
-  await db.put('employees', { ...emp, synced: false });
+  const existing = await db.get('employees', emp.id);
+  const updated = existing ? { ...existing, ...emp, synced: false } : { ...emp, synced: false };
+  await db.put('employees', updated);
   await addToSyncQueue({ action: 'UPDATE_EMPLOYEE', payload: emp });
 }
 export async function deleteEmployee(id) {
@@ -94,8 +96,15 @@ export async function clearSyncItem(id) {
 export async function seedEmployees(list) {
   const db = await initDB();
   const tx = db.transaction('employees', 'readwrite');
+  const existingAll = await tx.store.getAll();
+  const existingMap = new Map(existingAll.map(e => [e.id, e]));
   await tx.store.clear();
   for (const emp of list) {
+    const existing = existingMap.get(emp.id);
+    let finalHasQr = emp.has_qr_code;
+    if (existing && existing.has_qr_code && !emp.has_qr_code) {
+      finalHasQr = true;
+    }
     await tx.store.put({
       id: emp.id,
       name: emp.name,
@@ -107,6 +116,7 @@ export async function seedEmployees(list) {
       role: emp.role,
       username: emp.username,
       profile_pic: emp.profile_pic,
+      has_qr_code: finalHasQr,
       synced: true,
       createdAt: new Date(emp.created_at).getTime(),
     });

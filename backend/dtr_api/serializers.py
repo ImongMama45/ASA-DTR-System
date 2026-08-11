@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Employee, DTRBatch, FundPayment, Attachment, TreasuryTransaction
+from .models import Employee, DTRBatch, FundPayment, Attachment, TreasuryTransaction, AttendanceRecord, AttendanceAnomaly
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -10,7 +10,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Employee
-        fields = ['id', 'name', 'duty', 'office', 'start_date', 'end_date', 'is_active', 'local_id', 'created_at', 'updated_at', 'role', 'username', 'profile_pic']
+        fields = ['id', 'name', 'duty', 'office', 'start_date', 'end_date', 'is_active', 'local_id', 'has_qr_code', 'created_at', 'updated_at', 'role', 'username', 'profile_pic']
 
 
 class FundPaymentSerializer(serializers.ModelSerializer):
@@ -73,3 +73,49 @@ class TreasuryTransactionSerializer(serializers.ModelSerializer):
             'recorded_by_name', 'recorded_by_role', 'running_balance', 'created_at',
         ]
         read_only_fields = ['id', 'transaction_id', 'recorded_by_name', 'recorded_by_role', 'running_balance', 'created_at']
+
+
+from .supabase_client import get_public_url
+
+class AttendanceRecordSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    scanned_by_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AttendanceRecord
+        fields = [
+            'id', 'employee', 'employee_name', 'scan_type', 'timestamp',
+            'scanned_by', 'scanned_by_name', 'scanned_by_role', 'scanned_by_display',
+            'source', 'location', 'proof_image', 'admin_notes', 'linked_anomaly',
+        ]
+        read_only_fields = [
+            'id', 'timestamp', 'scanned_by', 'scanned_by_name',
+            'scanned_by_role', 'source', 'linked_anomaly',
+        ]
+
+    def get_employee_name(self, obj):
+        return obj.employee.name if obj.employee else '[Deleted Employee]'
+
+    def get_scanned_by_display(self, obj):
+        """Human-readable name of the officer who scanned."""
+        if obj.scanned_by_name:
+            return obj.scanned_by_name
+        if obj.scanned_by:
+            emp = getattr(getattr(obj.scanned_by, 'profile', None), 'employee', None)
+            return emp.name if emp else obj.scanned_by.username
+        return None
+
+
+class AttendanceAnomalySerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AttendanceAnomaly
+        fields = [
+            'id', 'employee', 'employee_name', 'attempted_by', 'attempted_by_name',
+            'reason', 'timestamp', 'reviewed', 'resolved_by_record',
+        ]
+        read_only_fields = ['id', 'timestamp', 'attempted_by', 'attempted_by_name', 'resolved_by_record']
+
+    def get_employee_name(self, obj):
+        return obj.employee.name if obj.employee else '[Unknown]'

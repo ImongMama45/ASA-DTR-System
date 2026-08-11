@@ -206,7 +206,7 @@ export default function UserManagement({ isOnline }) {
             <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
               <thead>
                 <tr>
-                  {['Username', 'SA Name', 'Role', 'Password', 'Status', 'Actions'].map(h => (
+                  {['User ID', 'Username', 'SA Name', 'Role', 'Password', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: '#64748b', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -217,6 +217,9 @@ export default function UserManagement({ isOnline }) {
                   const isSelf = u.id === currentUser?.id;
                   return (
                     <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9', opacity: u.is_active ? 1 : 0.55 }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 700, color: '#94a3b8', fontSize: 13 }}>
+                        {u.id}
+                      </td>
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>
                         {u.username}{isSelf && <span style={{ fontSize: 10, color: '#6366f1', marginLeft: 6, fontWeight: 700 }}>(You)</span>}
                       </td>

@@ -171,9 +171,16 @@ export function generateTime(duty, hoursPerDay, seed) {
       arrM, seed, 17
     );
 
+    const to12h = (h) => {
+      let h12 = h;
+      if (h12 === 0) h12 = 12;
+      else if (h12 > 12) h12 -= 12;
+      return h12;
+    };
+
     return {
-      arrival: `${arrH}:${fmt2(arrM)}`,
-      departure: `${depH}:${fmt2(depM)}`,
+      arrival: `${to12h(arrH)}:${fmt2(arrM)}`,
+      departure: `${to12h(depH)}:${fmt2(depM)}`,
       pmArrival: '',
       pmDeparture: '',
     };
@@ -210,11 +217,18 @@ export function generateTime(duty, hoursPerDay, seed) {
       23
     );
 
+    const to12h = (h) => {
+      let h12 = h;
+      if (h12 === 0) h12 = 12;
+      else if (h12 > 12) h12 -= 12;
+      return h12;
+    };
+
     return {
       arrival: '',
       departure: '',
-      pmArrival: `${arrH}:${fmt2(arrM)}`,
-      pmDeparture: `${depH}:${fmt2(depM)}`,
+      pmArrival: `${to12h(arrH)}:${fmt2(arrM)}`,
+      pmDeparture: `${to12h(depH)}:${fmt2(depM)}`,
     };
   }
 }

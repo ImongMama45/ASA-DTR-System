@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllEmployees, getAllBatches } from '../db';
-import { fetchDashboardStats } from '../hooks/useSync';
-import { ShieldAlert, Users, Info, CalendarDays, Calendar, Check, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { fetchDashboardStats, fetchEmployeeAttendance } from '../hooks/useSync';
+import { ShieldAlert, Users, Info, CalendarDays, Calendar, Check, X, ChevronLeft, ChevronRight, Clock, AlertTriangle } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -19,6 +19,30 @@ export default function MemberDashboard({ isOnline }) {
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [calMonth, setCalMonth] = useState(new Date().getMonth() + 1);
   const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [liveRecordsByDate, setLiveRecordsByDate] = useState({}); // dateStr -> { AM_ARRIVAL, AM_DEPARTURE, PM_ARRIVAL, PM_DEPARTURE }
+  const [loadingLive, setLoadingLive] = useState(false);
+  const [tardinessData, setTardinessData] = useState(null);
+
+  const PH_TZ = 'Asia/Manila';
+
+  const toPHTDateStr = (isoString) => {
+    const parts = new Intl.DateTimeFormat('en-PH', {
+      timeZone: PH_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date(isoString));
+    const get = (t) => parts.find(p => p.type === t)?.value || '00';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  };
+
+  const formatTimePHT = (isoString) => {
+    if (!isoString) return null;
+    const parts = new Intl.DateTimeFormat('en-PH', {
+      timeZone: PH_TZ, hour: 'numeric', minute: '2-digit', hour12: true,
+    }).formatToParts(new Date(isoString));
+    const h = parts.find(p => p.type === 'hour')?.value || '12';
+    const m = parts.find(p => p.type === 'minute')?.value || '00';
+    const ampm = parts.find(p => p.type === 'dayPeriod')?.value?.toUpperCase() || '';
+    return `${h}:${m} ${ampm}`;
+  };
 
   useEffect(() => { load(); }, [isOnline, year]);
 
@@ -53,6 +77,21 @@ export default function MemberDashboard({ isOnline }) {
     }
   }
 
+  // Fetch own tardiness record for current cutoff
+  useEffect(() => {
+    if (!isOnline) return;
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    const year = now.getFullYear(), month = now.getMonth() + 1;
+    const cutoff = now.getDate() <= 15 ? 1 : 2;
+    const token = localStorage.getItem('access_token');
+    fetch(`${API_BASE}/attendance/tardiness/?year=${year}&month=${month}&cutoff=${cutoff}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.json())
+      .then(d => setTardinessData(Array.isArray(d) && d.length ? d[0] : null))
+      .catch(() => {});
+  }, [isOnline]);
+
   // Compute totals from myFunds
   const totalPaid = myFunds.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
   const paidCutoffs = myFunds.filter(p => parseFloat(p.amount) >= 20).length;
@@ -64,10 +103,10 @@ export default function MemberDashboard({ isOnline }) {
   // Extract attendance from all available DTR batches
   const myAttendance = {};
   myBatches.forEach(b => {
-    const me = (b.employees || []).find(e => 
-      e.id === user?.employee_id || 
-      e.serverId === user?.employee_id || 
-      e.emp?.id === user?.employee_id || 
+    const me = (b.employees || []).find(e =>
+      e.id === user?.employee_id ||
+      e.serverId === user?.employee_id ||
+      e.emp?.id === user?.employee_id ||
       e.emp?.serverId === user?.employee_id
     );
     if (me && me.rows) {
@@ -78,6 +117,27 @@ export default function MemberDashboard({ isOnline }) {
     }
   });
   const totalPresent = Object.values(myAttendance).filter(r => r.status === 'present').length;
+
+  // Fetch live attendance records for the current calendar month/year
+  useEffect(() => {
+    if (!isOnline || !user?.employee_id) return;
+    setLoadingLive(true);
+    const startDate = `${calYear}-${String(calMonth).padStart(2, '0')}-01`;
+    const lastDay = new Date(calYear, calMonth, 0).getDate();
+    const endDate = `${calYear}-${String(calMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    fetchEmployeeAttendance(user.employee_id, { month: calMonth, year: calYear })
+      .then(records => {
+        const byDate = {};
+        (records || []).forEach(r => {
+          const ds = toPHTDateStr(r.timestamp);
+          if (!byDate[ds]) byDate[ds] = {};
+          byDate[ds][r.scan_type] = r;
+        });
+        setLiveRecordsByDate(byDate);
+        setLoadingLive(false);
+      })
+      .catch(() => setLoadingLive(false));
+  }, [calMonth, calYear, isOnline, user?.employee_id]);
 
   function navigateMonth(dir) {
     let m = calMonth + dir;
@@ -98,6 +158,28 @@ export default function MemberDashboard({ isOnline }) {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+
+      {/* ── My Tardiness Banner ── */}
+      {isOnline && tardinessData && tardinessData.status !== 'green' && (() => {
+        const STATUS = {
+          orange: { bg: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', dot: '#f97316', label: 'Warning — You have been late this cutoff', icon: <AlertTriangle size={16} /> },
+          red:    { bg: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', dot: '#ef4444', label: 'Critical — 3 or more lates this cutoff', icon: <AlertTriangle size={16} /> },
+        };
+        const cfg = STATUS[tardinessData.status];
+        if (!cfg) return null;
+        return (
+          <div style={{ background: cfg.bg, border: cfg.border, borderRadius: 10, padding: '12px 20px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, color: cfg.color, fontSize: 13, fontWeight: 600 }}>
+            <span style={{ color: cfg.dot }}>{cfg.icon}</span>
+            <div style={{ flex: 1 }}>
+              {cfg.label}
+              <span style={{ marginLeft: 12, fontWeight: 400, fontSize: 12 }}>
+                {tardinessData.late_count} late arrival{tardinessData.late_count !== 1 ? 's' : ''} · {tardinessData.minutes_late_total} min total this cutoff
+              </span>
+            </div>
+            <span style={{ fontSize: 11, opacity: 0.7 }}>{tardinessData.duty} Duty</span>
+          </div>
+        );
+      })()}
 
       {/* ── Welcome Hero ── */}
       <div style={{
@@ -160,70 +242,70 @@ export default function MemberDashboard({ isOnline }) {
 
       {/* ── Main Layout: 2 Columns ── */}
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        
+
         {/* Left Column: Fund Tracker */}
         <div style={{ flex: '1 1 500px' }}>
           {/* ── My Fund Tracker ── */}
           <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-          <div className="card-title" style={{ margin: 0 }}>💰 My Fund Contributions</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontWeight: 600, fontSize: 13 }}>Year:</label>
-            <input type="number" className="form-input" value={year}
-              onChange={e => setYear(+e.target.value)} style={{ width: 90, padding: '5px 10px' }} />
-          </div>
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+              <div className="card-title" style={{ margin: 0 }}>💰 My Fund Contributions</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontWeight: 600, fontSize: 13 }}>Year:</label>
+                <input type="number" className="form-input" value={year}
+                  onChange={e => setYear(+e.target.value)} style={{ width: 90, padding: '5px 10px' }} />
+              </div>
+            </div>
 
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Info size={14} color="#6366f1" />
-          <span>View-only — fund payments are managed by the treasurer. Contact your officers for corrections.</span>
-        </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Info size={14} color="#6366f1" />
+              <span>View-only — fund payments are managed by the treasurer. Contact your officers for corrections.</span>
+            </div>
 
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>Loading…</div>
-        ) : myFunds.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
-            No fund payment records found for {year}. {!isOnline && '(Offline — data may not be loaded)'}
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Month</th>
-                  <th style={thStyle}>Cutoff</th>
-                  <th style={thStyle}>Amount</th>
-                  <th style={thStyle}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {myFunds.sort((a, b) => a.month - b.month || a.cutoff - b.cutoff).map(p => {
-                  const amt = parseFloat(p.amount);
-                  const isPaid = amt >= 20;
-                  const isPartial = amt > 0 && !isPaid;
-                  return (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={tdStyle}>{MONTH_NAMES[p.month] || `M${p.month}`}</td>
-                      <td style={tdStyle}>{p.cutoff === 1 ? '1–15' : '16–End'}</td>
-                      <td style={{ ...tdStyle, fontWeight: 700, color: isPaid ? '#16a34a' : isPartial ? '#ea580c' : '#94a3b8' }}>
-                        ₱{amt}
-                      </td>
-                      <td style={tdStyle}>
-                        <span style={{
-                          padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                          background: isPaid ? '#dcfce7' : isPartial ? '#ffedd5' : '#f1f5f9',
-                          color: isPaid ? '#166534' : isPartial ? '#9a3412' : '#64748b',
-                        }}>
-                          {isPaid ? '✓ Paid' : isPartial ? 'Partial' : 'Unpaid'}
-                        </span>
-                      </td>
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>Loading…</div>
+            ) : myFunds.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
+                No fund payment records found for {year}. {!isOnline && '(Offline — data may not be loaded)'}
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={thStyle}>Month</th>
+                      <th style={thStyle}>Cutoff</th>
+                      <th style={thStyle}>Amount</th>
+                      <th style={thStyle}>Status</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  </thead>
+                  <tbody>
+                    {myFunds.sort((a, b) => a.month - b.month || a.cutoff - b.cutoff).map(p => {
+                      const amt = parseFloat(p.amount);
+                      const isPaid = amt >= 20;
+                      const isPartial = amt > 0 && !isPaid;
+                      return (
+                        <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={tdStyle}>{MONTH_NAMES[p.month] || `M${p.month}`}</td>
+                          <td style={tdStyle}>{p.cutoff === 1 ? '1–15' : '16–End'}</td>
+                          <td style={{ ...tdStyle, fontWeight: 700, color: isPaid ? '#16a34a' : isPartial ? '#ea580c' : '#94a3b8' }}>
+                            ₱{amt}
+                          </td>
+                          <td style={tdStyle}>
+                            <span style={{
+                              padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                              background: isPaid ? '#dcfce7' : isPartial ? '#ffedd5' : '#f1f5f9',
+                              color: isPaid ? '#166534' : isPartial ? '#9a3412' : '#64748b',
+                            }}>
+                              {isPaid ? '✓ Paid' : isPartial ? 'Partial' : 'Unpaid'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 
@@ -236,14 +318,14 @@ export default function MemberDashboard({ isOnline }) {
             <div style={{ fontSize: 13, color: '#64748b', marginTop: 8, marginBottom: 16 }}>
               View your daily time records and attendance history based on generated DTRs.
             </div>
-            
+
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, fontSize: 13, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Check size={14} color="#16a34a" /> Total Present</div>
               <div style={{ fontWeight: 700, color: '#166534' }}>{totalPresent} days</div>
             </div>
 
-            <button 
-              className="btn btn-primary" 
+            <button
+              className="btn btn-primary"
               style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
               onClick={() => setShowCalendarModal(true)}
             >
@@ -266,7 +348,7 @@ export default function MemberDashboard({ isOnline }) {
                 <X size={20} />
               </button>
             </div>
-            
+
             <div style={{ padding: 24 }}>
               {/* Controls */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -286,36 +368,59 @@ export default function MemberDashboard({ isOnline }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
                 {calGrid.map((d, i) => {
                   if (!d) return <div key={i} style={{ background: '#f8fafc', borderRadius: 8, minHeight: 70, border: '1px dashed #e2e8f0' }} />;
-                  
+
                   const dateStr = `${calYear}-${String(calMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                   const row = myAttendance[dateStr];
+                  const live = liveRecordsByDate[dateStr]; // real scan records
+
                   let bg = '#fff', border = '1px solid #e2e8f0', color = '#334155';
                   let icon = null;
 
-                  if (row) {
+                  const isWeekend = (() => { const day = new Date(calYear, calMonth - 1, d).getDay(); return day === 0 || day === 6; })();
+                  const hasLiveData = live && Object.keys(live).length > 0;
+
+                  if (hasLiveData) {
+                    bg = '#dcfce7'; border = '1px solid #86efac'; color = '#166534'; icon = <Check size={14} color="#16a34a" />;
+                  } else if (row) {
                     if (row.status === 'present') { bg = '#dcfce7'; border = '1px solid #86efac'; color = '#166534'; icon = <Check size={14} color="#16a34a" />; }
                     else if (row.status === 'absent') { bg = '#fee2e2'; border = '1px solid #fca5a5'; color = '#991b1b'; icon = <X size={14} color="#dc2626" />; }
                     else if (row.status === 'holiday') { bg = '#fef9c3'; border = '1px solid #fde047'; color = '#854d0e'; }
                     else if (row.status === 'weekend') { bg = '#f1f5f9'; border = '1px solid #cbd5e1'; color = '#64748b'; }
+                  } else if (isWeekend) {
+                    bg = '#f1f5f9'; border = '1px solid #cbd5e1'; color = '#64748b';
                   }
 
+                  const amIn = live?.AM_ARRIVAL ? formatTimePHT(live.AM_ARRIVAL.timestamp) : null;
+                  const amOut = live?.AM_DEPARTURE ? formatTimePHT(live.AM_DEPARTURE.timestamp) : null;
+                  const pmIn = live?.PM_ARRIVAL ? formatTimePHT(live.PM_ARRIVAL.timestamp) : null;
+                  const pmOut = live?.PM_DEPARTURE ? formatTimePHT(live.PM_DEPARTURE.timestamp) : null;
+
                   return (
-                    <div key={i} style={{ 
-                      background: bg, border, borderRadius: 8, minHeight: 74, padding: '6px 8px',
+                    <div key={i} style={{
+                      background: bg, border, borderRadius: 8, minHeight: 80, padding: '6px 8px',
                       display: 'flex', flexDirection: 'column', transition: 'all 0.15s',
-                      boxShadow: row?.status === 'present' ? '0 2px 4px rgba(34,197,94,0.1)' : 'none'
+                      boxShadow: hasLiveData ? '0 2px 4px rgba(34,197,94,0.1)' : 'none'
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color }}>{d}</span>
                         {icon}
                       </div>
-                      
-                      {row && row.status === 'present' && (
-                        <div style={{ fontSize: 9, color: '#15803d', marginTop: 'auto', textAlign: 'center', lineHeight: 1.3, fontWeight: 600, background: '#bbf7d0', padding: '2px 0', borderRadius: 4 }}>
-                          {row.arrival || '—'} <br/> {row.departure || '—'}
+
+                      {hasLiveData && (
+                        <div style={{ fontSize: 9, color: '#15803d', marginTop: 2, lineHeight: 1.5, fontWeight: 600 }}>
+                          {amIn && <div>▶ {amIn}</div>}
+                          {amOut && <div>◀ {amOut}</div>}
+                          {pmIn && <div>▶ {pmIn}</div>}
+                          {pmOut && <div>◀ {pmOut}</div>}
                         </div>
                       )}
-                      
+
+                      {!hasLiveData && row && row.status === 'present' && (
+                        <div style={{ fontSize: 9, color: '#15803d', marginTop: 'auto', textAlign: 'center', lineHeight: 1.3, fontWeight: 600, background: '#bbf7d0', padding: '2px 0', borderRadius: 4 }}>
+                          {row.arrival || '—'} <br /> {row.departure || '—'}
+                        </div>
+                      )}
+
                       {row && row.status === 'holiday' && (
                         <div style={{ fontSize: 10, color: '#a16207', marginTop: 'auto', textAlign: 'center', fontWeight: 700 }}>HOL</div>
                       )}
@@ -323,13 +428,13 @@ export default function MemberDashboard({ isOnline }) {
                   );
                 })}
               </div>
-              
+
               {/* Legend */}
               <div style={{ display: 'flex', gap: 16, marginTop: 24, padding: '12px', background: '#f8fafc', borderRadius: 8, fontSize: 12, fontWeight: 600, color: '#64748b', justifyContent: 'center', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 3 }}/> Present</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 3 }}/> Absent</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#fef9c3', border: '1px solid #fde047', borderRadius: 3 }}/> Holiday</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 3 }}/> Weekend</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 3 }} /> Present</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 3 }} /> Absent</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#fef9c3', border: '1px solid #fde047', borderRadius: 3 }} /> Holiday</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 12, height: 12, background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 3 }} /> Weekend</div>
               </div>
 
             </div>
@@ -337,7 +442,7 @@ export default function MemberDashboard({ isOnline }) {
         </div>
       )}
 
-    </div >
+    </div>
   );
 }
 

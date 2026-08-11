@@ -2,14 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { getAllEmployees, getAllBatches } from '../db';
 import { fetchDashboardStats, fetchOnlineUsers, sendHeartbeat, fetchTreasurySummary } from '../hooks/useSync';
 import { Users, FileText, UserCheck, Archive, Wifi, WifiOff, FileSpreadsheet, Server, Circle, Wallet, ChevronDown } from 'lucide-react';
+import AttendanceStatsCard from '../components/AttendanceStatsCard';
+import HistoricalAttendanceTable from '../components/HistoricalAttendanceTable';
+import TardinessStatusCard from '../components/TardinessStatusCard';
 
 const ROLE_COLORS = {
-  SuperAdmin:     { bg: '#7c3aed', text: '#fff' },
-  President:      { bg: '#1d4ed8', text: '#fff' },
+  SuperAdmin: { bg: '#7c3aed', text: '#fff' },
+  President: { bg: '#1d4ed8', text: '#fff' },
   'Vice President': { bg: '#0369a1', text: '#fff' },
-  Secretary:      { bg: '#0f766e', text: '#fff' },
-  Treasurer:      { bg: '#b45309', text: '#fff' },
-  Member:         { bg: '#374151', text: '#fff' },
+  Secretary: { bg: '#0f766e', text: '#fff' },
+  Treasurer: { bg: '#b45309', text: '#fff' },
+  Member: { bg: '#374151', text: '#fff' },
 };
 
 export default function Dashboard({ isOnline, setPage }) {
@@ -53,7 +56,7 @@ export default function Dashboard({ isOnline, setPage }) {
 
     // Heartbeat every 10 s (keeps our own last_seen fresh)
     heartbeatRef.current = setInterval(() => {
-      sendHeartbeat().catch(() => {});
+      sendHeartbeat().catch(() => { });
     }, 10_000);
 
     // Poll online users every 10 s
@@ -86,9 +89,9 @@ export default function Dashboard({ isOnline, setPage }) {
   }
 
   // ── Derived counts (from local IndexedDB data) ──────────────────────────────
-  const activeCount   = employees.filter(e => e.is_active !== false).length;
+  const activeCount = employees.filter(e => e.is_active !== false).length;
   const archivedCount = employees.filter(e => e.is_active === false).length;
-  const totalCount    = employees.length;
+  const totalCount = employees.length;
 
   const totalPresent = batches.reduce((acc, b) =>
     acc + (b.employees || []).reduce((a2, ed) =>
@@ -151,22 +154,27 @@ export default function Dashboard({ isOnline, setPage }) {
         </div>
       )}
 
+      {/* ── Attendance Stats ─────────────────────────────────────────────── */}
+      {isOnline && <AttendanceStatsCard />}
+      {isOnline && <HistoricalAttendanceTable />}
+      {isOnline && <TardinessStatusCard />}
+
       {/* ── Main content row ─────────────────────────────────────────────── */}
       <div className={`dashboard-layout ${isOnline ? '' : 'offline'}`}>
 
         {/* Left Column: Accordions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          
+
           {/* DTR Batch History Card */}
           <div className="card" style={{ marginBottom: 0 }}>
-            <div 
-              className="card-title" 
-              style={{ 
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                cursor: 'pointer', 
-                paddingBottom: historyExpanded ? 10 : 0, 
-                borderBottom: historyExpanded ? '2px solid var(--gray)' : 'none', 
-                marginBottom: historyExpanded ? 14 : 0 
+            <div
+              className="card-title"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                cursor: 'pointer',
+                paddingBottom: historyExpanded ? 10 : 0,
+                borderBottom: historyExpanded ? '2px solid var(--gray)' : 'none',
+                marginBottom: historyExpanded ? 14 : 0
               }}
               onClick={() => setHistoryExpanded(!historyExpanded)}
             >
@@ -188,7 +196,7 @@ export default function Dashboard({ isOnline, setPage }) {
                     </button>
                   </div>
                 )}
-                
+
                 {/* Scrollable container for batches */}
                 <div style={{ maxHeight: 350, overflowY: 'auto', paddingRight: 4 }}>
                   {batches.map((b) => (
@@ -212,14 +220,14 @@ export default function Dashboard({ isOnline, setPage }) {
           {/* Server Statistics Card */}
           {serverStats && (
             <div className="card" style={{ marginBottom: 0 }}>
-              <div 
-                className="card-title" 
-                style={{ 
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-                  cursor: 'pointer', 
-                  paddingBottom: serverExpanded ? 10 : 0, 
-                  borderBottom: serverExpanded ? '2px solid var(--gray)' : 'none', 
-                  marginBottom: serverExpanded ? 14 : 0 
+              <div
+                className="card-title"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  paddingBottom: serverExpanded ? 10 : 0,
+                  borderBottom: serverExpanded ? '2px solid var(--gray)' : 'none',
+                  marginBottom: serverExpanded ? 14 : 0
                 }}
                 onClick={() => setServerExpanded(!serverExpanded)}
               >
@@ -349,6 +357,8 @@ export default function Dashboard({ isOnline, setPage }) {
           </div>
         )}
       </div>
+
+
 
       {/* Pulse animation */}
       <style>{`

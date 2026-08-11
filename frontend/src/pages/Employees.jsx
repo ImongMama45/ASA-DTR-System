@@ -1,25 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
-import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter } from 'lucide-react';
-import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees } from '../db';
+import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter, QrCode, X, Download } from 'lucide-react';
+import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees, initDB } from '../db';
 import {
   fetchEmployees,
   createServerEmployee,
   updateServerEmployee,
   deleteServerEmployee,
+  fetchQRPayload,
+  reissueQRPayload
 } from '../hooks/useSync';
+import QRCode from 'qrcode';
 import FileUpload from '../components/FileUpload';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 const ROLE_COLORS = {
   SuperAdmin: { bg: '#fef3c7', color: '#92400e' },
-  President:  { bg: '#ede9fe', color: '#5b21b6' },
+  President: { bg: '#ede9fe', color: '#5b21b6' },
   'Vice President': { bg: '#e0f2fe', color: '#0c4a6e' },
-  Secretary:  { bg: '#dcfce7', color: '#166534' },
-  Treasurer:  { bg: '#fce7f3', color: '#9d174d' },
-  Member:     { bg: '#f1f5f9', color: '#475569' },
+  Secretary: { bg: '#dcfce7', color: '#166534' },
+  Treasurer: { bg: '#fce7f3', color: '#9d174d' },
+  Member: { bg: '#f1f5f9', color: '#475569' },
 };
 const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Vice President', 'President', 'SuperAdmin'];
 const OFFICES = [
@@ -142,7 +145,57 @@ export default function Employees({ isOnline }) {
 
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
   const [replacedEmployeeId, setReplacedEmployeeId] = useState('');
-  
+
+  // QR generation state
+  const [qrModal, setQrModal] = useState({ isOpen: false, employee: null, dataUrl: null, loading: false, error: null, showReissueConfirm: false });
+
+  const openQrModal = async (emp) => {
+    setQrModal({ isOpen: true, employee: emp, dataUrl: null, loading: true, error: null, showReissueConfirm: false });
+    try {
+      const res = await fetchQRPayload(emp.id);
+      const dataUrl = await QRCode.toDataURL(res.qr_payload, {
+        width: 300,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+      setQrModal(prev => ({ ...prev, dataUrl, loading: false }));
+      if (!emp.has_qr_code) {
+        queryClient.setQueryData(['employees', { isOnline }], old => 
+          old ? old.map(e => e.id === emp.id ? { ...e, has_qr_code: true } : e) : old
+        );
+        initDB().then(db => db.get('employees', emp.id)).then(record => {
+          if (record) {
+            record.has_qr_code = true;
+            initDB().then(db => db.put('employees', record));
+          }
+        });
+      }
+    } catch (err) {
+      setQrModal(prev => ({ ...prev, error: 'Failed to generate QR code.', loading: false }));
+    }
+  };
+
+  const handleReissueCard = () => {
+    if (!qrModal.employee) return;
+    setQrModal(prev => ({ ...prev, showReissueConfirm: true }));
+  };
+
+  const confirmReissueCard = async () => {
+    setQrModal(prev => ({ ...prev, loading: true, error: null, dataUrl: null, showReissueConfirm: false }));
+    try {
+      const res = await reissueQRPayload(qrModal.employee.id);
+      const dataUrl = await QRCode.toDataURL(res.qr_payload, {
+        width: 300,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
+      setQrModal(prev => ({ ...prev, dataUrl, loading: false }));
+      alert(`Card for ${qrModal.employee.name} successfully reissued!`);
+    } catch (err) {
+      setQrModal(prev => ({ ...prev, error: 'Failed to reissue QR code.', loading: false }));
+    }
+  };
+
   // User creation fields (only shown when adding a new employee as SuperAdmin)
   const [createUser, setCreateUser] = useState(false);
   const [userForm, setUserForm] = useState({ username: '', password: '', role: 'Member' });
@@ -164,10 +217,10 @@ export default function Employees({ isOnline }) {
       if (userForm.password.length < 8) { setMsg({ type: 'danger', text: 'Password must be at least 8 characters.' }); return; }
     }
     setSaving(true);
-    const data = { 
-      name: form.name.trim().toUpperCase(), 
-      duty: form.duty, 
-      office: form.office, 
+    const data = {
+      name: form.name.trim().toUpperCase(),
+      duty: form.duty,
+      office: form.office,
       start: form.start,
       replacedEmployeeId: replacedEmployeeId ? Number(replacedEmployeeId) : null,
       replacedLocalId: replacedEmployeeId ? String(replacedEmployeeId) : null
@@ -343,11 +396,11 @@ export default function Employees({ isOnline }) {
               <input type="date" className="form-input" value={form.start} onChange={e => setField('start', e.target.value)} />
             </div>
           </div>
-          
+
           {!form.id && (
             <div style={{ marginBottom: 12 }}>
               <label className="form-label">Replaces (Optional Swap)</label>
-              <select 
+              <select
                 className="form-select"
                 value={replacedEmployeeId}
                 onChange={e => {
@@ -414,7 +467,7 @@ export default function Employees({ isOnline }) {
             </button>
             {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
           </div>
-          
+
           {/* File Upload testing block for Employees */}
           {form.id && (
             <div style={{ marginTop: 24, padding: '16px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
@@ -424,9 +477,9 @@ export default function Employees({ isOnline }) {
               <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#166534' }}>
                 Upload ID photos or documents directly to Google Drive.
               </p>
-              <FileUpload 
-                employeeId={form.id} 
-                onUploaded={(data) => alert(`Upload successful! Drive ID: ${data.drive_file_id}`)} 
+              <FileUpload
+                employeeId={form.id}
+                onUploaded={(data) => alert(`Upload successful! Drive ID: ${data.drive_file_id}`)}
               />
             </div>
           )}
@@ -466,13 +519,13 @@ export default function Employees({ isOnline }) {
       {(() => {
         const filteredEmployees = employees.filter(emp => {
           const lowerQuery = searchQuery.toLowerCase();
-          const matchSearch = emp.name.toLowerCase().includes(lowerQuery) || 
-                              (emp.office || '').toLowerCase().includes(lowerQuery);
+          const matchSearch = emp.name.toLowerCase().includes(lowerQuery) ||
+            (emp.office || '').toLowerCase().includes(lowerQuery);
           const matchDuty = dutyFilter === 'all' || emp.duty === dutyFilter;
-          const matchActive = activeFilter === 'all' || 
-                              (activeFilter === 'active' && emp.is_active !== false) || 
-                              (activeFilter === 'archived' && emp.is_active === false);
-          
+          const matchActive = activeFilter === 'all' ||
+            (activeFilter === 'active' && emp.is_active !== false) ||
+            (activeFilter === 'archived' && emp.is_active === false);
+
           const isOfficer = emp.role && emp.role !== 'Member';
           const matchOfficers = !officersOnly || isOfficer;
 
@@ -492,7 +545,7 @@ export default function Employees({ isOnline }) {
               <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Users size={18} /> Employee List ({filteredEmployees.length})
               </div>
-              
+
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ position: 'relative' }}>
                   <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
@@ -500,7 +553,7 @@ export default function Employees({ isOnline }) {
                     value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                     style={{ width: 160, padding: '6px 12px 6px 28px' }} />
                 </div>
-                
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Filter size={14} color="#64748b" />
                   <select className="form-select" value={dutyFilter} onChange={e => setDutyFilter(e.target.value)} style={{ padding: '6px 12px' }}>
@@ -548,46 +601,51 @@ export default function Employees({ isOnline }) {
             ) : (
               <div className="emp-list">
                 {filteredEmployees.map(emp => {
-              const roleStyle = emp.role ? (ROLE_COLORS[emp.role] || ROLE_COLORS.Member) : null;
-              return (
-                <div className="emp-item" key={emp.id}>
-                  <div className="emp-avatar" style={{ overflow: 'hidden' }}>
-                    {emp.profile_pic ? (
-                      <img src={emp.profile_pic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      initials(emp.name)
-                    )}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="emp-name">{emp.name}</div>
-                    <div className="emp-meta">
-                      <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
-                      {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}
-                      {emp.start && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#666' }}>Since {emp.start}</span>}
-                      {emp.username ? (
-                        <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: roleStyle.bg, color: roleStyle.color }}>
-                          <UserCog size={10} style={{ display: 'inline', marginRight: 3 }} />{emp.username} · {emp.role}
-                        </span>
-                      ) : isSuperAdmin ? (
-                        <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No account</span>
-                      ) : null}
+                  const roleStyle = emp.role ? (ROLE_COLORS[emp.role] || ROLE_COLORS.Member) : null;
+                  return (
+                    <div className="emp-item" key={emp.id}>
+                      <div className="emp-avatar" style={{ overflow: 'hidden' }}>
+                        {emp.profile_pic ? (
+                          <img src={emp.profile_pic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          initials(emp.name)
+                        )}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div className="emp-name">{emp.name}</div>
+                        <div className="emp-meta">
+                          <span className={`badge badge-${emp.duty.toLowerCase()}`}>{emp.duty} Duty</span>
+                          {emp.office && <span className="badge badge-gray" style={{ marginLeft: 6 }}>{emp.office}</span>}
+                          {emp.start && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#666' }}>Since {emp.start}</span>}
+                          {emp.username ? (
+                            <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: roleStyle.bg, color: roleStyle.color }}>
+                              <UserCog size={10} style={{ display: 'inline', marginRight: 3 }} />{emp.username} · {emp.role}
+                            </span>
+                          ) : isSuperAdmin ? (
+                            <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No account</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="emp-actions">
+                        {isSuperAdmin && emp.is_active !== false && (
+                          <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => openQrModal(emp)}>
+                            <QrCode size={14} /> {emp.has_qr_code ? 'View QR' : 'Generate QR'}
+                          </button>
+                        )}
+                        {canManageEmployees && <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>}
+                        {isSuperAdmin && emp.is_active !== false && (
+                          <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'archive' })}>Archive</button>
+                        )}
+                        {isSuperAdmin && emp.is_active === false && (
+                          <>
+                            <button className="btn btn-sm btn-success" style={{ background: '#22c55e', color: '#fff', border: 'none' }} onClick={() => setDeleteTarget({ ...emp, _action: 'activate' })}>Activate</button>
+                            <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'delete' })}>Delete Permanently</button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="emp-actions">
-                    {canManageEmployees && <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>}
-                    {isSuperAdmin && emp.is_active !== false && (
-                      <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'archive' })}>Archive</button>
-                    )}
-                    {isSuperAdmin && emp.is_active === false && (
-                      <>
-                        <button className="btn btn-sm btn-success" style={{ background: '#22c55e', color: '#fff', border: 'none' }} onClick={() => setDeleteTarget({ ...emp, _action: 'activate' })}>Activate</button>
-                        <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'delete' })}>Delete Permanently</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -626,6 +684,84 @@ export default function Employees({ isOnline }) {
               >
                 {deleteTarget?._action === 'activate' ? 'Yes, Activate' : deleteTarget?._action === 'delete' ? 'Yes, Delete Permanently' : 'Yes, Archive'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── QR Modal ── */}
+      {qrModal.isOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content card" style={{ maxWidth: 400, margin: '20px auto', padding: 24, textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Attendance ID</h3>
+              <button onClick={() => setQrModal({ isOpen: false, employee: null, dataUrl: null, loading: false, error: null })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>{qrModal.employee?.name}</div>
+            <div style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>Scan this code to log attendance</div>
+
+            <div style={{ minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 20 }}>
+              {qrModal.loading ? (
+                <div style={{ color: '#94a3b8' }}>Generating QR code...</div>
+              ) : qrModal.error ? (
+                <div style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AlertTriangle size={16} /> {qrModal.error}
+                </div>
+              ) : qrModal.dataUrl ? (
+                <img src={qrModal.dataUrl} alt="QR Code" style={{ width: 280, height: 280 }} />
+              ) : null}
+            </div>
+
+            <button
+              onClick={() => {
+                if (qrModal.dataUrl) {
+                  const a = document.createElement('a');
+                  a.href = qrModal.dataUrl;
+                  a.download = `QR_${qrModal.employee.name.replace(/\s+/g, '_')}.png`;
+                  a.click();
+                }
+              }}
+              disabled={!qrModal.dataUrl}
+              className="btn btn-primary"
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}
+            >
+              <Download size={18} /> Download ID Card
+            </button>
+
+            {qrModal.employee?.has_qr_code && (
+              <button
+                onClick={handleReissueCard}
+                disabled={qrModal.loading}
+                className="btn btn-outline"
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#ef4444', borderColor: '#fca5a5' }}
+              >
+                <AlertTriangle size={18} /> Re-generate QR / Revoke
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Re-generate QR Confirm Modal ── */}
+      {qrModal.showReissueConfirm && (
+        <div className="modal-overlay" style={{ zIndex: 1050 }}>
+          <div className="modal-content card" style={{ margin: 0, maxWidth: 400 }}>
+            <h3 style={{ marginTop: 0, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={20} />
+              Confirm Re-generation
+            </h3>
+            <p style={{ margin: '16px 0', lineHeight: 1.5 }}>
+              This person already has a generated QR code. Are you sure you want to regenerate a new one?
+            </p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.5 }}>
+              This will <strong>permanently invalidate</strong> their current QR code, and they will need the new one to log attendance.
+            </p>
+            <div className="btn-row">
+              <button className="btn btn-outline" onClick={() => setQrModal(prev => ({ ...prev, showReissueConfirm: false }))}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmReissueCard}>Yes, Re-generate</button>
             </div>
           </div>
         </div>

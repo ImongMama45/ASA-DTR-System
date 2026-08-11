@@ -37,6 +37,13 @@ def upload_file(file_bytes: bytes, filename: str) -> str:
         logger.error(f"Supabase upload failed: {e}")
         raise e
 
+def get_public_url(filepath: str) -> str:
+    """
+    Returns the public URL for a file in the 'dtr-attachments' bucket.
+    """
+    client = _get_client()
+    return client.storage.from_("dtr-attachments").get_public_url(filepath)
+
 def get_signed_url(filepath: str, expires_in: int = 600) -> str:
     """
     Generates a secure, temporary signed URL for a file.

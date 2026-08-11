@@ -137,3 +137,17 @@ class CanAccessAttachment(BasePermission):
             return role in CanManageFunds._WRITE_ROLES
             
         return False
+
+
+class CanScanAttendance(BasePermission):
+    """Officers (any role except Member) can operate the attendance scanner.
+    Explicitly checks that role is not None — a user with no UserProfile
+    must not silently qualify as a scanner just because None != 'Member'.
+    """
+    message = "Only Officers (non-Member roles) can scan attendance."
+
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated and request.user.is_active):
+            return False
+        role = _role(request)
+        return role is not None and role != 'Member'

@@ -393,10 +393,14 @@ export default function UserSettings() {
                   <input type="text" style={inputStyle} value={editLastName} onChange={e => setEditLastName(e.target.value)} required />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 24 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>Email</label>
                   <input type="email" style={inputStyle} value={editEmail} onChange={e => setEditEmail(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>User ID</label>
+                  <div style={{ fontSize: 14, color: '#94a3b8', padding: '10px 0' }}>{user?.id}</div>
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>Username</label>
@@ -425,10 +429,14 @@ export default function UserSettings() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 32 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, marginBottom: 32 }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>Email</div>
                   <div style={{ fontSize: 13, color: '#64748b' }}>{user?.email || 'Not set'}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>User ID</div>
+                  <div style={{ fontSize: 13, color: '#64748b' }}>{user?.id}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 4 }}>Username</div>

@@ -1,8 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
-import json
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+import json
 
 
 class Employee(models.Model):
@@ -34,6 +34,8 @@ class Employee(models.Model):
     end_date = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     local_id = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    has_qr_code = models.BooleanField(default=False)
+    card_version = models.IntegerField(default=1)  # Incremented on QR card reissue; stale versions are rejected at scan time
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -254,3 +256,113 @@ class TreasuryTransaction(models.Model):
 
     def __str__(self):
         return f"{self.transaction_id} - PHP {self.amount}"
+
+
+class AttendanceRecord(models.Model):
+    """One row per successful clock-in or clock-out event.
+    scan_type encodes both AM/PM session and arrival/departure intent.
+    Timestamp is always server-clock; never from the client or QR payload.
+    """
+    SCAN_TYPE_CHOICES = [
+        ('AM_ARRIVAL', 'AM Arrival'),
+        ('AM_DEPARTURE', 'AM Departure'),
+        ('PM_ARRIVAL', 'PM Arrival'),
+        ('PM_DEPARTURE', 'PM Departure'),
+    ]
+    SOURCE_CHOICES = [
+        ('SCAN', 'QR Scan'),
+        ('MANUAL', 'Manual Override'),
+    ]
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attendance_records'
+    )
+    scan_type = models.CharField(max_length=14, choices=SCAN_TYPE_CHOICES)
+    timestamp = models.DateTimeField()  # Server clock, set at request processing time
+    scanned_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='scans_performed'
+    )
+    scanned_by_name = models.CharField(max_length=200, blank=True)
+    scanned_by_role = models.CharField(max_length=20, blank=True)
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default='SCAN')
+    location = models.CharField(max_length=200, blank=True)
+    proof_image = models.CharField(max_length=500, blank=True, null=True)  # Supabase Storage path for MANUAL overrides
+    admin_notes = models.TextField(blank=True)
+    linked_anomaly = models.ForeignKey(
+        'AttendanceAnomaly', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='corrective_records',
+        help_text='Set when this record was created as a corrective action from an anomaly'
+    )
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['employee', 'timestamp']),
+            models.Index(fields=['timestamp']),
+        ]
+
+    def __str__(self):
+        emp_name = self.employee.name if self.employee else '[Deleted Employee]'
+        return f"{emp_name} - {self.scan_type} @ {self.timestamp}"
+
+
+class AttendanceAnomaly(models.Model):
+    """Flagged or blocked scan attempts. Kept separate from AttendanceRecord
+    so the real attendance table stays 'only valid, real clock events.'
+    Admin can Dismiss (acknowledge) or Create Manual Entry (corrective action).
+    """
+    employee = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='attendance_anomalies'
+    )
+    attempted_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='scan_anomalies'
+    )
+    attempted_by_name = models.CharField(max_length=200, blank=True)
+    reason = models.CharField(max_length=255)
+    timestamp = models.DateTimeField()  # Server clock
+    reviewed = models.BooleanField(default=False)
+    resolved_by_record = models.ForeignKey(
+        AttendanceRecord, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='resolving_anomalies',
+        help_text='Set when admin creates a corrective AttendanceRecord from this anomaly'
+    )
+
+    class Meta:
+        ordering = ['-timestamp']
+        verbose_name_plural = 'Attendance anomalies'
+
+    def __str__(self):
+        emp_name = self.employee.name if self.employee else '[Unknown]'
+        return f"Anomaly: {emp_name} - {self.reason} @ {self.timestamp}"
+
+
+class EmployeeTardinessRecord(models.Model):
+    """
+    Per-employee, per-cutoff late counter.
+    Cutoff 1 = days 1–15 of the month.
+    Cutoff 2 = days 16–end of the month.
+    Resets implicitly: a new cutoff simply has no row (or a fresh row) —
+    the previous cutoff's row is never touched.
+    Status (green/orange/red) is computed from late_count, never stored.
+    """
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name='tardiness_records'
+    )
+    year = models.IntegerField()
+    month = models.IntegerField()
+    cutoff = models.IntegerField()           # 1 = days 1–15 · 2 = days 16–31
+    late_count = models.IntegerField(default=0)
+    minutes_late_total = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ('employee', 'year', 'month', 'cutoff')
+
+    def __str__(self):
+        return (
+            f"{self.employee.name} — {self.year}/{self.month:02d} "
+            f"cutoff {self.cutoff}: {self.late_count} late"
+        )
