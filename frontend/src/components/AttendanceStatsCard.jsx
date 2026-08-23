@@ -76,8 +76,8 @@ export default function AttendanceStatsCard() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 16, padding: 20, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 200, background: '#f8fafc', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+      <div style={{ display: 'flex', overflowX: 'auto', gap: 16, padding: 20, paddingBottom: 24 }}>
+        <div style={{ flexShrink: 0, minWidth: 200, flex: 1, background: '#f8fafc', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b', marginBottom: 8 }}>
             <Activity size={16} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Total Scans</span>
@@ -87,7 +87,7 @@ export default function AttendanceStatsCard() {
           </div>
         </div>
 
-        <div style={{ flex: 1, minWidth: 200, background: '#fffbeb', padding: 16, borderRadius: 12, border: '1px solid #fde68a' }}>
+        <div style={{ flexShrink: 0, flex: 1, minWidth: 200, background: '#fffbeb', padding: 16, borderRadius: 12, border: '1px solid #fde68a' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#b45309', marginBottom: 8 }}>
             <AlertTriangle size={16} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Anomalies</span>
@@ -97,7 +97,7 @@ export default function AttendanceStatsCard() {
           </div>
         </div>
 
-        <div style={{ flex: 1, minWidth: 200, background: '#f0fdf4', padding: 16, borderRadius: 12, border: '1px solid #bbf7d0' }}>
+        <div style={{ flexShrink: 0, flex: 1, minWidth: 200, background: '#f0fdf4', padding: 16, borderRadius: 12, border: '1px solid #bbf7d0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#15803d', marginBottom: 8 }}>
             <Clock size={16} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Hours Rendered</span>

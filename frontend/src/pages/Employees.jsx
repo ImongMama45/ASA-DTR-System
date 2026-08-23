@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
-import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter, QrCode, X, Download } from 'lucide-react';
+import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter, QrCode, X, Download, ChevronUp, ChevronDown, Activity, MoreVertical } from 'lucide-react';
 import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees, initDB } from '../db';
 import {
   fetchEmployees,
   createServerEmployee,
   updateServerEmployee,
+  restoreServerEmployee,
   deleteServerEmployee,
   fetchQRPayload,
-  reissueQRPayload
+  reissueQRPayload,
+  fetchAttendanceLeaderboard
 } from '../hooks/useSync';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend } from 'recharts';
 import QRCode from 'qrcode';
 import FileUpload from '../components/FileUpload';
 import { formatUserId } from '../utils/dateUtils';
@@ -23,9 +26,11 @@ const ROLE_COLORS = {
   'Vice President': { bg: '#e0f2fe', color: '#0c4a6e' },
   Secretary: { bg: '#dcfce7', color: '#166534' },
   Treasurer: { bg: '#fce7f3', color: '#9d174d' },
+  Auditor: { bg: '#fff7ed', color: '#c2410c' },
+  PIO: { bg: '#f0fdf4', color: '#15803d' },
   Member: { bg: '#f1f5f9', color: '#475569' },
 };
-const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Vice President', 'President', 'SuperAdmin'];
+const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Auditor', 'PIO', 'Vice President', 'President', 'SuperAdmin'];
 const OFFICES = [
   '', 'Finance Office', 'Registrar Office', 'Maintenance Office', 'Clinic',
   'Admission/Guidance Office', 'HR Office', 'BSSW Program Head Office', 'ICES Office',
@@ -138,6 +143,13 @@ export default function Employees({ isOnline }) {
     staleTime: 1000 * 60 * 5,
   });
 
+  const { data: leaderboardData, isLoading: loadingLeaderboard } = useQuery({
+    queryKey: ['attendanceLeaderboard'],
+    queryFn: fetchAttendanceLeaderboard,
+    staleTime: 1000 * 60 * 10,
+    enabled: isOnline,
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [dutyFilter, setDutyFilter] = useState('all');
   const [activeFilter, setActiveFilter] = useState('active');
@@ -146,6 +158,8 @@ export default function Employees({ isOnline }) {
 
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
   const [replacedEmployeeId, setReplacedEmployeeId] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showImportForm, setShowImportForm] = useState(false);
 
   // QR generation state
   const [qrModal, setQrModal] = useState({ isOpen: false, employee: null, dataUrl: null, loading: false, error: null, showReissueConfirm: false });
@@ -161,7 +175,7 @@ export default function Employees({ isOnline }) {
       });
       setQrModal(prev => ({ ...prev, dataUrl, loading: false }));
       if (!emp.has_qr_code) {
-        queryClient.setQueryData(['employees', { isOnline }], old => 
+        queryClient.setQueryData(['employees', { isOnline }], old =>
           old ? old.map(e => e.id === emp.id ? { ...e, has_qr_code: true } : e) : old
         );
         initDB().then(db => db.get('employees', emp.id)).then(record => {
@@ -206,7 +220,9 @@ export default function Employees({ isOnline }) {
   const [importStatus, setImportStatus] = useState(null);
   const [importing, setImporting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
   const fileInputRef = useRef();
+  const [openMenuId, setOpenMenuId] = useState(null);
 
   function setField(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function setUField(k, v) { setUserForm(f => ({ ...f, [k]: v })); }
@@ -278,11 +294,28 @@ export default function Employees({ isOnline }) {
     const isArchived = deleteTarget.is_active === false;
 
     if (isArchived && deleteTarget._action === 'activate') {
-      // Re-activate: send a PATCH to set is_active=true
+      // Re-activate: call the dedicated restore endpoint which also re-enables the linked user account
       if (isOnline) {
         try {
-          await updateServerEmployee(id, { ...deleteTarget, is_active: true });
-        } catch { /* local fallback not implemented for activate */ }
+          await restoreServerEmployee(id);
+          // Optimistically update local IndexedDB so the UI reflects the change immediately
+          const db = await initDB();
+          const record = await db.get('employees', id);
+          if (record) {
+            await db.put('employees', { ...record, is_active: true, end_date: '' });
+          }
+        } catch {
+          setMsg({ type: 'danger', text: 'Failed to activate employee. Please try again.' });
+          setDeleteTarget(null);
+          return;
+        }
+      } else {
+        // Offline: update local DB and queue a sync action
+        const db = await initDB();
+        const record = await db.get('employees', id);
+        if (record) {
+          await db.put('employees', { ...record, is_active: true, end_date: '' });
+        }
       }
     } else if (isArchived && deleteTarget._action === 'delete') {
       // Hard delete
@@ -310,6 +343,7 @@ export default function Employees({ isOnline }) {
     setForm({ id: emp.id, name: emp.name, duty: emp.duty, office: emp.office || '', start: emp.start || '' });
     setCreateUser(false);
     setUserForm({ username: `sa_${emp.name.split(',')[0].toLowerCase().replace(/\s+/g, '')}`, password: '', role: 'Member' });
+    setShowAddForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -365,124 +399,196 @@ export default function Employees({ isOnline }) {
 
   return (
     <div>
+      {/* ── Leaderboard Visualization ── */}
+      {isOnline && leaderboardData && (
+        <div className="card" style={{ marginBottom: 24, padding: 24 }}>
+          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+            Student Assistant Leaderboard
+          </div>
+
+          <div className="leaderboard-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24 }}>
+            <div>
+              <h4 style={{ fontSize: 14, color: '#475569', marginBottom: 12, textAlign: 'center' }}>Most Present</h4>
+              <div style={{ height: 220, width: '100%' }}>
+                {leaderboardData.most_present.length > 0 ? (
+                  <ResponsiveContainer>
+                    <BarChart data={leaderboardData.most_present} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={100} />
+                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} />
+                      <Bar dataKey="count" name="Days Present" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                        {leaderboardData.most_present.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={['#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe'][index % 5]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1' }}>
+                    No data available
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ fontSize: 14, color: '#475569', marginBottom: 12, textAlign: 'center' }}>Most Early</h4>
+              <div style={{ height: 220, width: '100%' }}>
+                {leaderboardData.most_early.length > 0 ? (
+                  <ResponsiveContainer>
+                    <BarChart data={leaderboardData.most_early} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
+                      <XAxis type="number" hide />
+                      <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={100} />
+                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }} />
+                      <Bar dataKey="count" name="Early Arrivals" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20}>
+                        {leaderboardData.most_early.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5'][index % 5]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1' }}>
+                    No data available
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Add / Edit form ── */}
       {canManageEmployees && (
         <div className="card">
-          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {form.id ? <><Edit2 size={18} /> Edit Employee</> : <><Plus size={18} /> Add Employee</>}
+          <div
+            className="card-title"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginBottom: showAddForm ? 16 : 0 }}
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {form.id ? <><Edit2 size={18} /> Edit Employee</> : <><Plus size={18} /> Add Employee</>}
+            </div>
+            {showAddForm ? <ChevronUp size={20} color="#64748b" /> : <ChevronDown size={20} color="#64748b" />}
           </div>
           {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
 
-          <div className="form-grid">
-            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Full Name (ALL CAPS)</label>
-              <input className="form-input" placeholder="e.g. JUAN DELA CRUZ"
-                value={form.name} onChange={e => setField('name', e.target.value.toUpperCase())} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Duty Type</label>
-              <select className="form-select" value={form.duty} onChange={e => setField('duty', e.target.value)}>
-                <option value="AM">AM (Morning Duty)</option>
-                <option value="PM">PM (Afternoon Duty)</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Office (Optional)</label>
-              <select className="form-select" value={form.office} onChange={e => setField('office', e.target.value)}>
-                {OFFICES.map(o => <option key={o} value={o}>{o || '-- None --'}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Start Date</label>
-              <input type="date" className="form-input" value={form.start} onChange={e => setField('start', e.target.value)} />
-            </div>
-          </div>
-
-          {!form.id && (
-            <div style={{ marginBottom: 12 }}>
-              <label className="form-label">Replaces (Optional Swap)</label>
-              <select
-                className="form-select"
-                value={replacedEmployeeId}
-                onChange={e => {
-                  const id = e.target.value;
-                  setReplacedEmployeeId(id);
-                  if (id) {
-                    const oldEmp = employees.find(emp => String(emp.id) === id);
-                    if (oldEmp) {
-                      setForm(f => ({
-                        ...f,
-                        duty: oldEmp.duty,
-                        office: oldEmp.office || '',
-                        start: new Date().toISOString().split('T')[0]
-                      }));
-                    }
-                  }
-                }}
-              >
-                <option value="">-- No replacement --</option>
-                {employees.filter(e => e.is_active !== false).map(e => (
-                  <option key={e.id} value={e.id}>{e.name} ({e.duty})</option>
-                ))}
-              </select>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-                Selecting an active employee will automatically archive them and inherit their duty and office.
+          {showAddForm && (
+            <>
+              <div className="form-grid">
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label className="form-label">Full Name (ALL CAPS)</label>
+                  <input className="form-input" placeholder="e.g. JUAN DELA CRUZ"
+                    value={form.name} onChange={e => setField('name', e.target.value.toUpperCase())} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Duty Type</label>
+                  <select className="form-select" value={form.duty} onChange={e => setField('duty', e.target.value)}>
+                    <option value="AM">AM (Morning Duty)</option>
+                    <option value="PM">PM (Afternoon Duty)</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Office (Optional)</label>
+                  <select className="form-select" value={form.office} onChange={e => setField('office', e.target.value)}>
+                    {OFFICES.map(o => <option key={o} value={o}>{o || '-- None --'}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Start Date</label>
+                  <input type="date" className="form-input" value={form.start} onChange={e => setField('start', e.target.value)} />
+                </div>
               </div>
-            </div>
-          )}
 
-          {/* Create user account toggle — only when SuperAdmin, and employee doesn't have an account */}
-          {isSuperAdmin && (!form.id || !employees.find(e => e.id === form.id)?.username) && (
-            <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#334155' }}>
-                <input type="checkbox" checked={createUser} onChange={e => setCreateUser(e.target.checked)} />
-                <KeyRound size={15} /> Also create a login account for this employee
-              </label>
-
-              {createUser && (
-                <div className="form-grid" style={{ marginTop: 12 }}>
-                  <div className="form-group">
-                    <label className="form-label">Username</label>
-                    <input className="form-input" placeholder="e.g. sa_juan" value={userForm.username}
-                      onChange={e => setUField('username', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Password (min 8 chars)</label>
-                    <input type="password" className="form-input" placeholder="••••••••" value={userForm.password}
-                      onChange={e => setUField('password', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Role</label>
-                    <select className="form-select" value={userForm.role} onChange={e => setUField('role', e.target.value)}>
-                      {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
+              {!form.id && (
+                <div style={{ marginBottom: 12 }}>
+                  <label className="form-label">Replaces (Optional Swap)</label>
+                  <select
+                    className="form-select"
+                    value={replacedEmployeeId}
+                    onChange={e => {
+                      const id = e.target.value;
+                      setReplacedEmployeeId(id);
+                      if (id) {
+                        const oldEmp = employees.find(emp => String(emp.id) === id);
+                        if (oldEmp) {
+                          setForm(f => ({
+                            ...f,
+                            duty: oldEmp.duty,
+                            office: oldEmp.office || '',
+                            start: new Date().toISOString().split('T')[0]
+                          }));
+                        }
+                      }
+                    }}
+                  >
+                    <option value="">-- No replacement --</option>
+                    {employees.filter(e => e.is_active !== false).map(e => (
+                      <option key={e.id} value={e.id}>{e.name} ({e.duty})</option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    Selecting an active employee will automatically archive them and inherit their duty and office.
                   </div>
                 </div>
               )}
-            </div>
-          )}
 
-          <div className="btn-row" style={{ marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={save} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {saving ? 'Saving…' : form.id ? <><Edit2 size={16} /> Update Employee</> : <><Plus size={16} /> {createUser ? 'Add Employee + Create Account' : 'Add Employee'}</>}
-            </button>
-            {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
-          </div>
+              {/* Create user account toggle — only when SuperAdmin, and employee doesn't have an account */}
+              {isSuperAdmin && (!form.id || !employees.find(e => e.id === form.id)?.username) && (
+                <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#334155' }}>
+                    <input type="checkbox" checked={createUser} onChange={e => setCreateUser(e.target.checked)} />
+                    <KeyRound size={15} /> Also create a login account for this employee
+                  </label>
 
-          {/* File Upload testing block for Employees */}
-          {form.id && (
-            <div style={{ marginTop: 24, padding: '16px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
-              <h4 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '14px' }}>
-                📎 Attach File to this Employee
-              </h4>
-              <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#166534' }}>
-                Upload ID photos or documents directly to Google Drive.
-              </p>
-              <FileUpload
-                employeeId={form.id}
-                onUploaded={(data) => alert(`Upload successful! Drive ID: ${data.drive_file_id}`)}
-              />
-            </div>
+                  {createUser && (
+                    <div className="form-grid" style={{ marginTop: 12 }}>
+                      <div className="form-group">
+                        <label className="form-label">Username</label>
+                        <input className="form-input" placeholder="e.g. sa_juan" value={userForm.username}
+                          onChange={e => setUField('username', e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Password (min 8 chars)</label>
+                        <input type="password" className="form-input" placeholder="••••••••" value={userForm.password}
+                          onChange={e => setUField('password', e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Role</label>
+                        <select className="form-select" value={userForm.role} onChange={e => setUField('role', e.target.value)}>
+                          {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="btn-row" style={{ marginTop: 16 }}>
+                <button className="btn btn-primary" onClick={save} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {saving ? 'Saving…' : form.id ? <><Edit2 size={16} /> Update Employee</> : <><Plus size={16} /> {createUser ? 'Add Employee + Create Account' : 'Add Employee'}</>}
+                </button>
+                {form.id && <button className="btn btn-secondary" onClick={clearForm}>Cancel</button>}
+              </div>
+
+              {/* File Upload testing block for Employees */}
+              {form.id && showAddForm && (
+                <div style={{ marginTop: 24, padding: '16px', background: '#f0fdf4', borderRadius: 8, border: '1px solid #bbf7d0' }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: '#166534', fontSize: '14px' }}>
+                    📎 Attach File to this Employee
+                  </h4>
+                  <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#166534' }}>
+                    Upload ID photos or documents directly to Google Drive.
+                  </p>
+                  <FileUpload
+                    employeeId={form.id}
+                    onUploaded={(data) => alert(`Upload successful! Drive ID: ${data.drive_file_id}`)}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -490,28 +596,40 @@ export default function Employees({ isOnline }) {
       {/* ── Import card ── */}
       {canManageEmployees && (
         <div className="card">
-          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Upload size={18} /> Import Employees
+          <div
+            className="card-title"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginBottom: showImportForm ? 16 : 0 }}
+            onClick={() => setShowImportForm(!showImportForm)}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Upload size={18} /> Import Employees
+            </div>
+            {showImportForm ? <ChevronUp size={20} color="#64748b" /> : <ChevronDown size={20} color="#64748b" />}
           </div>
-          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
-            Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees. Duplicate names are skipped.
-          </p>
-          <input ref={fileInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={handleFileUpload} />
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {importing ? '⏳ Importing…' : <><Upload size={16} /> Choose File (.csv / .json)</>}
-          </button>
-          {importStatus && (
-            <div style={{ marginTop: 14 }}>
-              {importStatus.ok > 0 && <div className="alert alert-success">✅ {importStatus.ok} employee{importStatus.ok !== 1 ? 's' : ''} imported.</div>}
-              {importStatus.skipped > 0 && <div className="alert alert-warning">⏭ {importStatus.skipped} duplicate{importStatus.skipped !== 1 ? 's' : ''} skipped.</div>}
-              {importStatus.errors.length > 0 && (
-                <div className="alert alert-danger">
-                  <strong>⚠ {importStatus.errors.length} error{importStatus.errors.length !== 1 ? 's' : ''}:</strong>
-                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{importStatus.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+
+          {showImportForm && (
+            <>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
+                Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees. Duplicate names are skipped.
+              </p>
+              <input ref={fileInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={handleFileUpload} />
+              <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
+                style={{ background: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {importing ? 'Importing…' : <><Upload size={16} /> Choose File (.csv / .json)</>}
+              </button>
+              {importStatus && (
+                <div style={{ marginTop: 14 }}>
+                  {importStatus.ok > 0 && <div className="alert alert-success">✅ {importStatus.ok} employee{importStatus.ok !== 1 ? 's' : ''} imported.</div>}
+                  {importStatus.skipped > 0 && <div className="alert alert-warning">⏭ {importStatus.skipped} duplicate{importStatus.skipped !== 1 ? 's' : ''} skipped.</div>}
+                  {importStatus.errors.length > 0 && (
+                    <div className="alert alert-danger">
+                      <strong>⚠ {importStatus.errors.length} error{importStatus.errors.length !== 1 ? 's' : ''}:</strong>
+                      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{importStatus.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
       )}
@@ -630,22 +748,30 @@ export default function Employees({ isOnline }) {
                           ) : null}
                         </div>
                       </div>
-                      <div className="emp-actions">
-                        {isSuperAdmin && emp.is_active !== false && (
-                          <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => openQrModal(emp)}>
-                            <QrCode size={14} /> {emp.has_qr_code ? 'View QR' : 'Generate QR'}
-                          </button>
-                        )}
-                        {canManageEmployees && <button className="btn btn-sm btn-outline" onClick={() => edit(emp)}>Edit</button>}
-                        {isSuperAdmin && emp.is_active !== false && (
-                          <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'archive' })}>Archive</button>
-                        )}
-                        {isSuperAdmin && emp.is_active === false && (
-                          <>
-                            <button className="btn btn-sm btn-success" style={{ background: '#22c55e', color: '#fff', border: 'none' }} onClick={() => setDeleteTarget({ ...emp, _action: 'activate' })}>Activate</button>
-                            <button className="btn btn-sm btn-danger" onClick={() => setDeleteTarget({ ...emp, _action: 'delete' })}>Delete Permanently</button>
-                          </>
-                        )}
+                      <div className="emp-actions-container" style={{ position: 'relative' }}>
+                        <button
+                          className="btn btn-sm btn-outline mobile-menu-toggle"
+                          onClick={() => setOpenMenuId(openMenuId === emp.id ? null : emp.id)}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        <div className={`emp-actions ${openMenuId === emp.id ? 'mobile-open' : ''}`}>
+                          {isSuperAdmin && emp.is_active !== false && (
+                            <button className="btn btn-sm btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={() => { openQrModal(emp); setOpenMenuId(null); }}>
+                              <QrCode size={14} /> {emp.has_qr_code ? 'View QR' : 'Generate QR'}
+                            </button>
+                          )}
+                          {canManageEmployees && <button className="btn btn-sm btn-outline" onClick={() => { setEditTarget(emp); setOpenMenuId(null); }}>Edit</button>}
+                          {isSuperAdmin && emp.is_active !== false && (
+                            <button className="btn btn-sm btn-danger" onClick={() => { setDeleteTarget({ ...emp, _action: 'archive' }); setOpenMenuId(null); }}>Archive</button>
+                          )}
+                          {isSuperAdmin && emp.is_active === false && (
+                            <>
+                              <button className="btn btn-sm btn-success" style={{ background: '#22c55e', color: '#fff', border: 'none' }} onClick={() => { setDeleteTarget({ ...emp, _action: 'activate' }); setOpenMenuId(null); }}>Activate</button>
+                              <button className="btn btn-sm btn-danger" onClick={() => { setDeleteTarget({ ...emp, _action: 'delete' }); setOpenMenuId(null); }}>Delete Permanently</button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -687,6 +813,34 @@ export default function Employees({ isOnline }) {
                 onClick={executeDelete}
               >
                 {deleteTarget?._action === 'activate' ? 'Yes, Activate' : deleteTarget?._action === 'delete' ? 'Yes, Delete Permanently' : 'Yes, Archive'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Confirm Modal ── */}
+      {editTarget && (
+        <div className="modal-overlay">
+          <div className="modal-content card" style={{ maxWidth: 400, margin: '20px auto', padding: 24 }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 700, color: '#d97706', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={20} />
+              Confirm Edit
+            </h3>
+            <p style={{ margin: '16px 0' }}>
+              Are you sure you want to edit the profile of <strong>{editTarget.name}</strong>?
+            </p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              Please be careful not to accidentally overwrite data that shouldn't be changed.
+            </p>
+            <div className="btn-row" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setEditTarget(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                style={{ background: '#d97706', color: '#fff', border: 'none' }}
+                onClick={() => { edit(editTarget); setEditTarget(null); }}
+              >
+                Yes, Edit
               </button>
             </div>
           </div>

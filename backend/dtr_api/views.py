@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from django.utils import timezone
 from datetime import timedelta
 from django.db import transaction
+from django.core.cache import cache
 import json
 
 logger = logging.getLogger(__name__)
@@ -18,17 +19,37 @@ from . import drive_client
 from . import supabase_client
 from django.http import HttpResponseRedirect
 from .models import Employee, DTRBatch, SyncLog, FundPayment, SheetsSyncState, Attachment, TreasuryTransaction
-from .models import AttendanceRecord, AttendanceAnomaly, EmployeeTardinessRecord
+from .models import AttendanceRecord, AttendanceAnomaly, EmployeeTardinessRecord, DTREndpoint
 from django.db.models import F
 from .serializers import EmployeeSerializer, DTRBatchSerializer, FundPaymentSerializer, AttachmentSerializer, TreasuryTransactionSerializer
-from .serializers import AttendanceRecordSerializer, AttendanceAnomalySerializer
+from .serializers import AttendanceRecordSerializer, AttendanceAnomalySerializer, DTREndpointSerializer
 from . import sheets_sync
-from .permissions import IsSuperAdmin, CanManageEmployees, CanManageDTR, CanManageFunds, CanAccessAttachment, CanScanAttendance
+from .permissions import IsSuperAdmin, CanManageEmployees, CanManageDTR, CanManageFunds, CanAccessAttachment, CanScanAttendance, IsAuthenticatedAndActive, IsOfficer
 from rest_framework.exceptions import NotFound, ValidationError
 from django.db import transaction
 from .models import ActivityLog
 from rest_framework.decorators import throttle_classes
 from rest_framework.throttling import ScopedRateThrottle
+
+# ─── Throttle Classes ──────────────────────────────────────────────────────────
+class AttendanceLiveThrottle(ScopedRateThrottle):
+    scope = 'attendance_live'
+
+class AttendanceAnomaliesThrottle(ScopedRateThrottle):
+    scope = 'attendance_anomalies'
+
+class AttendanceStatsThrottle(ScopedRateThrottle):
+    scope = 'attendance_stats'
+
+class AttendanceHistoryThrottle(ScopedRateThrottle):
+    scope = 'attendance_history'
+
+class DashboardThrottle(ScopedRateThrottle):
+    scope = 'dashboard_view'
+
+class TreasurySummaryThrottle(ScopedRateThrottle):
+    scope = 'treasury_summary'
+
 
 def perform_employee_swap(request_data, replaced_id, replaced_local_id, user):
     with transaction.atomic():
@@ -94,7 +115,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         """
         if self.action == 'hard_delete':
             return [IsSuperAdmin()]
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'restore'):
             return [CanManageEmployees()]
         return [IsAuthenticated()]
 
@@ -129,6 +150,18 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             employee.user_profile.user.save()
         return Response({'status': 'archived'}, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['patch'], url_path='restore')
+    def restore(self, request, pk=None):
+        """Re-activate an archived employee and their linked user account (SuperAdmin / CanManageEmployees)."""
+        employee = self.get_object()
+        employee.is_active = True
+        employee.end_date = None
+        employee.save()
+        if hasattr(employee, 'user_profile') and employee.user_profile.user:
+            employee.user_profile.user.is_active = True
+            employee.user_profile.user.save()
+        return Response({'status': 'restored'}, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['delete'], url_path='hard-delete')
     def hard_delete(self, request, pk=None):
         """Permanent removal of the Employee record (SuperAdmin only).
@@ -151,9 +184,7 @@ class DTRBatchViewSet(viewsets.ModelViewSet):
     serializer_class = DTRBatchSerializer
 
     def get_permissions(self):
-        """All authenticated users can read; only DTR managers can write."""
-        if self.request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return [IsAuthenticated()]
+        """Only DTR managers can read or write DTR batches."""
         return [CanManageDTR()]
 
     def create(self, request, *args, **kwargs):
@@ -282,7 +313,7 @@ def sync_view(request):
         return Response({'error': 'Insufficient permissions to modify employees.'}, status=status.HTTP_403_FORBIDDEN)
     if action in DTR_ACTIONS and role not in {'SuperAdmin', 'President', 'Vice President', 'Secretary'}:
         return Response({'error': 'Insufficient permissions to manage DTR.'}, status=status.HTTP_403_FORBIDDEN)
-    if action in FUND_ACTIONS and role not in {'SuperAdmin', 'President', 'Vice President', 'Treasurer'}:
+    if action in FUND_ACTIONS and role not in {'SuperAdmin', 'President', 'Vice President', 'Treasurer', 'Auditor'}:
         return Response({'error': 'Insufficient permissions to edit fund records.'}, status=status.HTTP_403_FORBIDDEN)
 
     log = SyncLog(action=action, payload=json.dumps(payload))
@@ -375,7 +406,8 @@ def sync_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsOfficer])
+@throttle_classes([DashboardThrottle])
 def dashboard_view(request):
     from django.db.models import Count
     last_sync = SyncLog.objects.filter(success=True).order_by('-processed_at').first()
@@ -522,6 +554,7 @@ def _current_total_budget():
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([TreasurySummaryThrottle])
 def treasury_summary(request):
     """GET /api/treasury/summary/ — readable by all authenticated users."""
     return Response({'total_budget': str(_current_total_budget())})
@@ -931,15 +964,11 @@ def attendance_scan_status(request):
     })
 
 
-class AttendanceLiveThrottle(ScopedRateThrottle):
-    scope = 'attendance_live'
 
-class AttendanceAnomaliesThrottle(ScopedRateThrottle):
-    scope = 'attendance_anomalies'
 
 
 @api_view(['GET'])
-@permission_classes([IsSuperAdmin])
+@permission_classes([IsAuthenticatedAndActive])
 @throttle_classes([AttendanceLiveThrottle])
 def attendance_live(request):
     """
@@ -971,7 +1000,7 @@ def attendance_live(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsSuperAdmin])
+@permission_classes([IsAuthenticatedAndActive])
 @throttle_classes([AttendanceAnomaliesThrottle])
 def attendance_anomalies(request):
     """
@@ -1030,6 +1059,7 @@ def attendance_manual(request):
     location = request.data.get('location', '')
     admin_notes = request.data.get('admin_notes', '').strip()
     anomaly_id = request.data.get('anomaly_id')
+    date_str = request.data.get('date') # Expected format "YYYY-MM-DD"
     time_str = request.data.get('time') # Expected format "HH:MM"
 
     if not admin_notes:
@@ -1067,6 +1097,15 @@ def attendance_manual(request):
     # Determine timestamp
     record_timestamp = timezone.now()
     base_local = timezone.localtime(timezone.now())
+    
+    if date_str and not linked_anomaly:
+        try:
+            d_parts = date_str.split('-')
+            year, month, day = int(d_parts[0]), int(d_parts[1]), int(d_parts[2])
+            base_local = base_local.replace(year=year, month=month, day=day)
+        except (ValueError, TypeError, IndexError):
+            pass
+
     if time_str:
         try:
             parts = time_str.split(':')
@@ -1141,9 +1180,6 @@ def attendance_tardiness(request):
         year, month = now.year, now.month
         cutoff = 1 if now.day <= 15 else 2
 
-    role = getattr(getattr(request.user, 'profile', None), 'role', None)
-    is_admin = (role == 'SuperAdmin')
-
     qs = EmployeeTardinessRecord.objects.filter(
         year=year, month=month, cutoff=cutoff
     ).select_related('employee')
@@ -1183,37 +1219,51 @@ def attendance_tardiness(request):
             return 'orange'
         return 'red'
 
-    if is_admin:
-        # Build a dict of existing records keyed by employee_id
-        records_by_emp = {r.employee_id: r for r in qs}
-        results = []
-        for emp in Employee.objects.filter(is_active=True).order_by('name'):
-            r = records_by_emp.get(emp.id)
-            results.append({
-                'employee_id': emp.id,
-                'name': emp.name,
-                'duty': emp.duty,
-                'late_count': r.late_count if r else 0,
-                'minutes_late_total': r.minutes_late_total if r else 0,
-                'status': _status(r.late_count if r else 0),
-                'late_details': lates_by_emp.get(emp.id, []),
-            })
-        return Response(results)
+    # Calculate Daily Status for Today
+    today = timezone.localtime(timezone.now()).date()
+    today_start = timezone.make_aware(datetime.combine(today, datetime.min.time()))
+    today_end = timezone.make_aware(datetime.combine(today, datetime.max.time()))
+    
+    today_logged_in = set(AttendanceRecord.objects.filter(
+        timestamp__gte=today_start, timestamp__lte=today_end, scan_type__contains='ARRIVAL'
+    ).values_list('employee_id', flat=True))
+    
+    today_late_emps = set(AttendanceAnomaly.objects.filter(
+        timestamp__gte=today_start, timestamp__lte=today_end, reason__startswith='LATE_ARRIVAL'
+    ).values_list('employee_id', flat=True))
+    
+    now_time = timezone.localtime(timezone.now()).time()
+    
+    def _daily_status(emp_id, duty):
+        if emp_id in today_logged_in:
+            if emp_id in today_late_emps:
+                return 'late'
+            return 'ontime'
+        else:
+            if duty == 'AM' and now_time.hour >= 13:
+                return 'absent'
+            elif duty == 'PM' and now_time.hour >= 18:
+                return 'absent'
+            elif duty not in ['AM', 'PM'] and now_time.hour >= 18:
+                return 'absent'
+            return 'blank'
 
-    # Non-admin: return only own record
-    own_emp = getattr(getattr(request.user, 'profile', None), 'employee', None)
-    if not own_emp:
-        return Response([])
-    r = qs.filter(employee=own_emp).first()
-    return Response([{
-        'employee_id': own_emp.id,
-        'name': own_emp.name,
-        'duty': own_emp.duty,
-        'late_count': r.late_count if r else 0,
-        'minutes_late_total': r.minutes_late_total if r else 0,
-        'status': _status(r.late_count if r else 0),
-        'late_details': lates_by_emp.get(own_emp.id, []),
-    }])
+    # Build a dict of existing records keyed by employee_id
+    records_by_emp = {r.employee_id: r for r in qs}
+    results = []
+    for emp in Employee.objects.filter(is_active=True).order_by('name'):
+        r = records_by_emp.get(emp.id)
+        results.append({
+            'employee_id': emp.id,
+            'name': emp.name,
+            'duty': emp.duty,
+            'late_count': r.late_count if r else 0,
+            'minutes_late_total': r.minutes_late_total if r else 0,
+            'status': _status(r.late_count if r else 0),
+            'daily_status': _daily_status(emp.id, emp.duty),
+            'late_details': lates_by_emp.get(emp.id, []),
+        })
+    return Response(results)
 
 
 
@@ -1231,7 +1281,22 @@ def attendance_employee(request, employee_id):
 
     qs = AttendanceRecord.objects.filter(employee=employee).order_by('timestamp')
 
-    # Optional period filtering
+    # Date-range mode: ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+    # Takes priority over year/month/cutoff mode when both date params are present.
+    date_from_raw = request.query_params.get('date_from')
+    date_to_raw = request.query_params.get('date_to')
+    if date_from_raw and date_to_raw:
+        from datetime import date as date_type
+        try:
+            date_from = date_type.fromisoformat(date_from_raw)
+            date_to = date_type.fromisoformat(date_to_raw)
+        except ValueError:
+            return Response({'error': 'date_from and date_to must be YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+        # Filter by server-local date using __date lookups
+        qs = qs.filter(timestamp__date__gte=date_from, timestamp__date__lte=date_to)
+        return Response(AttendanceRecordSerializer(qs, many=True).data)
+
+    # Standard period mode: ?year=&month=&cutoff=
     year = request.query_params.get('year')
     month = request.query_params.get('month')
     if year and month:
@@ -1247,6 +1312,90 @@ def attendance_employee(request, employee_id):
     return Response(AttendanceRecordSerializer(qs, many=True).data)
 
 
+# ── GET/POST /api/dtr/endpoint/ ───────────────────────────────────────────────
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def dtr_endpoint_view(request):
+    """
+    GET  /api/dtr/endpoint/?month=&year=&cutoff=
+         Returns the DTREndpoint for that period, or 404 if none exists yet.
+
+    POST /api/dtr/endpoint/  { month, year, cutoff, endpoint_date }
+         Creates or updates the endpoint for that period.
+         Requires CanManageDTR permission for writes.
+         Writes an ActivityLog entry when an *existing* endpoint is changed.
+    """
+    from datetime import date as date_type
+    from .permissions import CanManageDTR as CanManageDTRPerm
+
+    if request.method == 'GET':
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        cutoff = request.query_params.get('cutoff')
+        if not all([month, year, cutoff]):
+            return Response({'error': 'month, year, and cutoff are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            ep = DTREndpoint.objects.get(month=int(month), year=int(year), cutoff=int(cutoff))
+        except DTREndpoint.DoesNotExist:
+            return Response({'error': 'No endpoint set for this period.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(DTREndpointSerializer(ep).data)
+
+    # POST — require CanManageDTR
+    perm = CanManageDTRPerm()
+    if not perm.has_permission(request, None):
+        return Response({'error': 'Only DTR managers can set endpoints.'}, status=status.HTTP_403_FORBIDDEN)
+
+    month = request.data.get('month')
+    year = request.data.get('year')
+    cutoff = request.data.get('cutoff')
+    endpoint_date_raw = request.data.get('endpoint_date')
+    # Optional list of integer day numbers that were holidays during this cutoff.
+    # Must be stored via set_holidays() / json.dumps — never directly in update_or_create's
+    # defaults dict, which would write a raw Python list into a TextField.
+    holidays_raw = request.data.get('holidays', [])
+
+    if not all([month, year, cutoff, endpoint_date_raw]):
+        return Response({'error': 'month, year, cutoff, and endpoint_date are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate holidays is a list of ints
+    try:
+        holidays_list = [int(d) for d in holidays_raw] if holidays_raw else []
+    except (TypeError, ValueError):
+        return Response({'error': 'holidays must be a list of day numbers.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Look for existing record to detect if this is an update (for audit log)
+    old_ep = DTREndpoint.objects.filter(month=int(month), year=int(year), cutoff=int(cutoff)).first()
+    old_date = old_ep.endpoint_date if old_ep else None
+
+    ep, created = DTREndpoint.objects.update_or_create(
+        month=int(month),
+        year=int(year),
+        cutoff=int(cutoff),
+        defaults={
+            'endpoint_date': endpoint_date_raw,
+            'set_by': request.user,
+        }
+    )
+
+    # Persist holidays separately via the model helper — holidays_json is a TextField
+    # and must be JSON-encoded, not written as a raw Python object.
+    ep.set_holidays(holidays_list)
+    ep.save(update_fields=['holidays_json'])
+
+    # Write audit log only for retroactive edits (not the initial creation)
+    if not created and old_date and str(old_date) != str(endpoint_date_raw):
+        ActivityLog.objects.create(
+            user=request.user,
+            action='Changed DTR Endpoint',
+            description=(
+                f"Changed DTR endpoint for {month}/{year} cutoff {cutoff} "
+                f"from {old_date} to {endpoint_date_raw}."
+            )
+        )
+
+    return Response(DTREndpointSerializer(ep).data, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([CanScanAttendance])
 def attendance_generate_qr(request, employee_id):
@@ -1257,6 +1406,7 @@ def attendance_generate_qr(request, employee_id):
     Reissues the card by incrementing card_version, invalidating all old cards.
     """
     from .qr_utils import generate_qr_payload
+    from django.core.cache import cache
 
     employee = Employee.objects.filter(id=employee_id).first()
     if not employee:
@@ -1279,50 +1429,47 @@ def attendance_generate_qr(request, employee_id):
     })
 
 @api_view(['GET'])
-@permission_classes([IsSuperAdmin])
+@permission_classes([IsAuthenticatedAndActive])
+@throttle_classes([AttendanceStatsThrottle])
 def attendance_stats(request):
     """
     Returns aggregated stats (total logs, anomalies, hours rendered).
     Modes:
-      - Default: returns week/month/year aggregates (existing behaviour).
+      - Default: returns week/month/year aggregates (cached).
       - ?period=day&date=YYYY-MM-DD: returns a single-day aggregate keyed as 'day'.
     """
     period = request.query_params.get('period')
     date_str = request.query_params.get('date')
 
+    cache_key = f"attendance_stats:{period or 'default'}:{date_str or ''}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached)
+
     now = timezone.localtime(timezone.now())
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    def _get_stats(start_time, end_time=None):
-        qs_records = AttendanceRecord.objects.filter(timestamp__gte=start_time)
-        qs_anomalies = AttendanceAnomaly.objects.filter(timestamp__gte=start_time)
-        if end_time:
-            qs_records = qs_records.filter(timestamp__lt=end_time)
-            qs_anomalies = qs_anomalies.filter(timestamp__lt=end_time)
+    def _get_stats_from_list(recs, anoms):
+        logs_count = len(recs)
+        anomalies_count = len(anoms)
+        qr_count = sum(1 for r in recs if r['source'] == 'SCAN')
+        manual_count = sum(1 for r in recs if r['source'] == 'MANUAL')
 
-        logs_count = qs_records.count()
-        anomalies_count = qs_anomalies.count()
-
-        # QR vs Manual source split (stored value is 'SCAN', not 'QR')
-        qr_count = qs_records.filter(source='SCAN').count()
-        manual_count = qs_records.filter(source='MANUAL').count()
-
-        # Calculate paired hours per AM/PM session (lunch gap excluded)
         from collections import defaultdict
         shifts = defaultdict(lambda: {'arr': None, 'dep': None})
-        for r in qs_records.select_related('employee'):
-            date_key = timezone.localtime(r.timestamp).date()
-            session = 'AM' if 'AM' in r.scan_type else 'PM'
-            key = (r.employee_id, date_key, session)
-            if 'ARRIVAL' in r.scan_type:
+        for r in recs:
+            date_key = timezone.localtime(r['timestamp']).date()
+            session = 'AM' if 'AM' in r['scan_type'] else 'PM'
+            key = (r['employee_id'], date_key, session)
+            if 'ARRIVAL' in r['scan_type']:
                 shifts[key]['arr'] = r
-            elif 'DEPARTURE' in r.scan_type:
+            elif 'DEPARTURE' in r['scan_type']:
                 shifts[key]['dep'] = r
 
         total_seconds = 0
         for v in shifts.values():
-            if v['arr'] and v['dep'] and v['dep'].timestamp > v['arr'].timestamp:
-                total_seconds += (v['dep'].timestamp - v['arr'].timestamp).total_seconds()
+            if v['arr'] and v['dep'] and v['dep']['timestamp'] > v['arr']['timestamp']:
+                total_seconds += (v['dep']['timestamp'] - v['arr']['timestamp']).total_seconds()
 
         hours_rendered = round(total_seconds / 3600, 1)
         anomaly_rate = round((anomalies_count / logs_count * 100) if logs_count else 0, 1)
@@ -1336,7 +1483,6 @@ def attendance_stats(request):
             'manual_count': manual_count,
         }
 
-    # Single-day mode
     if period == 'day' and date_str:
         try:
             target_date = timezone.datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -1344,21 +1490,78 @@ def attendance_stats(request):
             target_date = now.date()
         day_start = timezone.make_aware(timezone.datetime.combine(target_date, timezone.datetime.min.time()))
         day_end = day_start + timedelta(days=1)
-        return Response({'day': _get_stats(day_start, day_end)})
+        
+        recs = list(AttendanceRecord.objects.filter(timestamp__gte=day_start, timestamp__lt=day_end).values('employee_id', 'scan_type', 'timestamp', 'source'))
+        anoms = list(AttendanceAnomaly.objects.filter(timestamp__gte=day_start, timestamp__lt=day_end).values('id', 'timestamp'))
+        
+        response_data = {'day': _get_stats_from_list(recs, anoms)}
+    else:
+        # Default: week / month / year-to-date
+        this_week_start = today_start - timedelta(days=now.weekday())
+        this_month_start = today_start.replace(day=1)
+        this_year_start = today_start.replace(month=1, day=1)
+        
+        # Single fetch for the year
+        all_recs = list(AttendanceRecord.objects.filter(timestamp__gte=this_year_start).values('employee_id', 'scan_type', 'timestamp', 'source'))
+        all_anoms = list(AttendanceAnomaly.objects.filter(timestamp__gte=this_year_start).values('id', 'timestamp'))
+        
+        # Slice for week and month
+        week_recs = [r for r in all_recs if r['timestamp'] >= this_week_start]
+        week_anoms = [a for a in all_anoms if a['timestamp'] >= this_week_start]
+        
+        month_recs = [r for r in all_recs if r['timestamp'] >= this_month_start]
+        month_anoms = [a for a in all_anoms if a['timestamp'] >= this_month_start]
+        
+        response_data = {
+            'week': _get_stats_from_list(week_recs, week_anoms),
+                'month': _get_stats_from_list(month_recs, month_anoms),
+            'year': _get_stats_from_list(all_recs, all_anoms)
+        }
 
-    # Default: week / month / year-to-date
-    this_week_start = today_start - timedelta(days=now.weekday())
-    this_month_start = today_start.replace(day=1)
-    this_year_start = today_start.replace(month=1, day=1)
+    cache.set(cache_key, response_data, 60)
+    return Response(response_data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedAndActive])
+def attendance_leaderboard(request):
+    from datetime import timedelta
+    start_date = timezone.localtime(timezone.now()).date() - timedelta(days=30)
+    start_datetime = timezone.make_aware(timezone.datetime.combine(start_date, timezone.datetime.min.time()))
+    
+    logs = AttendanceRecord.objects.filter(timestamp__gte=start_datetime).select_related('employee')
+    
+    present_counts = {}
+    early_counts = {}
+    
+    for log in logs:
+        emp_id = log.employee.id
+        emp_name = log.employee.name
+        if emp_id not in present_counts:
+            present_counts[emp_id] = {'name': emp_name, 'count': 0}
+            early_counts[emp_id] = {'name': emp_name, 'count': 0}
+            
+        if 'ARRIVAL' in log.scan_type:
+            present_counts[emp_id]['count'] += 1
+            
+        local_time = timezone.localtime(log.timestamp)
+        if log.scan_type == 'AM_ARRIVAL' and (local_time.hour < 8 or (local_time.hour == 8 and local_time.minute == 0)):
+            early_counts[emp_id]['count'] += 1
+        elif log.scan_type == 'PM_ARRIVAL' and (local_time.hour < 13 or (local_time.hour == 13 and local_time.minute == 0)):
+            early_counts[emp_id]['count'] += 1
+
+    top_present = sorted(present_counts.values(), key=lambda x: x['count'], reverse=True)[:5]
+    top_early = sorted(early_counts.values(), key=lambda x: x['count'], reverse=True)[:5]
+    
     return Response({
-        'week': _get_stats(this_week_start),
-        'month': _get_stats(this_month_start),
-        'year': _get_stats(this_year_start)
+        'most_present': top_present,
+        'most_early': top_early
     })
 
 
 @api_view(['GET'])
-@permission_classes([IsSuperAdmin])
+@permission_classes([IsAuthenticatedAndActive])
+@throttle_classes([AttendanceHistoryThrottle])
 def attendance_history(request):
     """
     GET /api/attendance/history/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD[&group_by=day|week|month|year]
@@ -1396,6 +1599,12 @@ def attendance_history(request):
     ).select_related('employee').order_by('timestamp')
 
     if group_by:
+        from django.core.cache import cache
+        cache_key = f"attendance_history:{start_date_str}:{end_date_str}:{group_by}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
         try:
             # Return bucketed counts for charts — aggregated from daily metrics
             from collections import defaultdict
@@ -1489,7 +1698,9 @@ def attendance_history(request):
                 buckets[label]['manual_count'] += stats['manual_count']
                 
             chart_data = [buckets[k] for k in sorted(buckets.keys())]
-            return Response({'chart_data': chart_data, 'group_by': group_by})
+            result = {'chart_data': chart_data, 'group_by': group_by}
+            cache.set(cache_key, result, 60)
+            return Response(result)
         except Exception as e:
             import traceback
             return Response({'error': traceback.format_exc()}, status=500)

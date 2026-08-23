@@ -6,11 +6,158 @@ import ConfirmModal from '../components/ConfirmModal';
 import Toast from '../components/Toast';
 import { useSync } from '../hooks/useSync';
 import { fetchEmployees } from '../hooks/useSync';
-import { Wallet, Search, Filter, History, Cloud, CloudOff, RefreshCw, AlertTriangle, Info, Edit3, X, Eye, EyeOff, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { Wallet, Search, Filter, History, Cloud, CloudOff, RefreshCw, AlertTriangle, Info, Edit3, X, Eye, EyeOff, ChevronLeft, ChevronRight, Check, Lock, Loader2 } from 'lucide-react';
 import { TreasuryActions, FundLogsButton } from '../components/TreasuryPanel';
 
 // Mirrors the pattern in useSync.js — VITE_API_URL already contains /api
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+
+// ─── Password Gate Modal ───────────────────────────────────────────────────────
+function PasswordGateModal({ title, subtitle, warningText, onVerified, onCancel }) {
+  const [pw, setPw] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!pw) { setError('Please enter your password.'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`${API_BASE}/auth/verify-password/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (res.ok) {
+        onVerified();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Incorrect password. Please try again.');
+        setPw('');
+        inputRef.current?.focus();
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(15,23,42,0.6)',
+        backdropFilter: 'blur(3px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 20, padding: 32, width: 420,
+          boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+          animation: 'pwGatePop 0.18s ease-out',
+        }}
+      >
+        <style>{`@keyframes pwGatePop { from { opacity:0; transform:scale(0.95) } to { opacity:1; transform:scale(1) } }`}</style>
+
+        {/* Icon + title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: '50%',
+            background: 'linear-gradient(135deg,#fef3c7,#fde68a)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#92400e', flexShrink: 0,
+            boxShadow: '0 4px 12px rgba(251,191,36,0.3)',
+          }}>
+            <Lock size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{title}</div>
+            {subtitle && <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>{subtitle}</div>}
+          </div>
+        </div>
+
+        {warningText && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px',
+            background: '#fef9c3', borderRadius: 10, border: '1px solid #fde047',
+            marginBottom: 20, fontSize: 13, color: '#854d0e', lineHeight: 1.5,
+          }}>
+            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+            {warningText}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Your Password
+          </label>
+          <div style={{ position: 'relative' }}>
+            <input
+              ref={inputRef}
+              type={showPw ? 'text' : 'password'}
+              value={pw}
+              onChange={(e) => { setPw(e.target.value); setError(''); }}
+              placeholder="Enter your password…"
+              className="form-input"
+              style={{ width: '100%', padding: '11px 44px 11px 14px', fontSize: 14, boxSizing: 'border-box', borderRadius: 10 }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw(v => !v)}
+              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}
+            >
+              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, color: '#b91c1c', fontSize: 13, fontWeight: 600 }}>
+              <AlertTriangle size={14} /> {error}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+            <button type="button" onClick={onCancel} className="btn btn-outline" style={{ flex: 1 }} disabled={loading}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading || !pw}
+              style={{
+                flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '11px 20px', borderRadius: 10, border: 'none', color: '#fff', fontWeight: 700, fontSize: 14,
+                background: loading ? '#94a3b8' : 'linear-gradient(135deg,#3b82f6,#6366f1)',
+                cursor: loading || !pw ? 'not-allowed' : 'pointer',
+                opacity: !pw ? 0.7 : 1,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              {loading && <Loader2 size={16} className="login-spinner" />}
+              {loading ? 'Verifying…' : 'Confirm'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -147,9 +294,10 @@ export default function FundTracker({ isOnline }) {
 
   const [pendingPayment, setPendingPayment] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [editUnlocked, setEditUnlocked] = useState(false); // true after password verified
   const [initialEditState, setInitialEditState] = useState(null);
-  const [showEditWarning, setShowEditWarning] = useState(false);
-  const [showDoneEditing, setShowDoneEditing] = useState(false);
+  // pwGate: null | 'enter' | 'exit'
+  const [pwGate, setPwGate] = useState(null);
   const [isNameCollapsed, setIsNameCollapsed] = useState(false);
   const [viewFilter, setViewFilter] = useState('active'); // 'active' | 'archived' | 'all'
   const [saving, setSaving] = useState(false);
@@ -303,15 +451,30 @@ export default function FundTracker({ isOnline }) {
   function toggleEditMode() {
     if (!canEditFunds) return;
     if (!isEditing) {
-      setShowEditWarning(true);
+      // Must verify password to ENTER edit mode
+      setPwGate('enter');
     } else {
-      setShowDoneEditing(true);
+      // Must verify password to EXIT edit mode
+      setPwGate('exit');
     }
+  }
+
+  function onPasswordVerifiedEnter() {
+    setPwGate(null);
+    setIsEditing(true);
+    setEditUnlocked(true);
+    setInitialEditState({ ...payments });
+  }
+
+  function onPasswordVerifiedExit() {
+    setPwGate(null);
+    finalizeEditMode();
   }
 
   async function finalizeEditMode() {
     setIsEditing(false);
-    setShowDoneEditing(false);
+    setEditUnlocked(false);
+    setPwGate(null);
 
     if (!initialEditState) return;
 
@@ -583,39 +746,41 @@ export default function FundTracker({ isOnline }) {
         <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           {canEditFunds && (
             <>
-              <button className={`btn ${isEditing ? 'btn-success' : 'btn-outline'}`} onClick={toggleEditMode}>
-                {isEditing ? <><Check size={16} /> Done Editing</> : <><Edit3 size={16} /> Edit Mode</>}
+              <button
+                className={`btn ${isEditing ? 'btn-success' : 'btn-outline'}`}
+                onClick={toggleEditMode}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {isEditing
+                  ? <><Check size={16} /> Done Editing<Lock size={14} style={{ marginLeft: 2, opacity: 0.7 }} /></>
+                  : <><Edit3 size={16} /> Edit Mode<Lock size={14} style={{ marginLeft: 2, opacity: 0.6 }} /></>}
               </button>
-              <TreasuryActions canEditFunds={canEditFunds} onComplete={fetchTotalBudget} />
+              <TreasuryActions canEditFunds={canEditFunds} editUnlocked={editUnlocked} onComplete={fetchTotalBudget} />
             </>
           )}
           <FundLogsButton />
         </div>
 
-        {showEditWarning && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 400, boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fef9c3', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a16207' }}>
-                  <AlertTriangle size={24} />
-                </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>Enable Edit Mode</div>
-              </div>
-              <p style={{ color: '#475569', fontSize: 14, marginBottom: 24, lineHeight: 1.5 }}>
-                Are you sure you want to edit the fund tracker? Proceed with caution.
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                <button className="btn btn-outline" onClick={() => setShowEditWarning(false)}>Cancel</button>
-                <button
-                  className="btn"
-                  style={{ background: '#3b82f6', color: '#fff', border: 'none' }}
-                  onClick={() => { setIsEditing(true); setInitialEditState({ ...payments }); setShowEditWarning(false); }}
-                >
-                  Yes, enable editing
-                </button>
-              </div>
-            </div>
-          </div>
+        {/* Password gate — enter edit mode */}
+        {pwGate === 'enter' && (
+          <PasswordGateModal
+            title="Enable Edit Mode"
+            subtitle="You are about to make changes to fund records."
+            warningText="This will allow you to modify payment data. A full log of all edits will be recorded. Proceed with caution."
+            onVerified={onPasswordVerifiedEnter}
+            onCancel={() => setPwGate(null)}
+          />
+        )}
+
+        {/* Password gate — exit edit mode */}
+        {pwGate === 'exit' && (
+          <PasswordGateModal
+            title="Confirm & Save Edits"
+            subtitle="Re-enter your password to finalize and log all edits."
+            warningText="All changes made during this session will be permanently logged. Please ensure all payments are correctly recorded before confirming."
+            onVerified={onPasswordVerifiedExit}
+            onCancel={() => setPwGate(null)}
+          />
         )}
 
         <div className="alert alert-info" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -749,14 +914,6 @@ export default function FundTracker({ isOnline }) {
           setPendingPayment(null);
         }}
         onCancel={() => setPendingPayment(null)}
-      />
-
-      <ConfirmModal
-        isOpen={showDoneEditing}
-        title="Finish Editing"
-        message="Are you sure you are done editing? Please ensure all payments have been updated correctly. A log of your edits will be created."
-        onConfirm={finalizeEditMode}
-        onCancel={() => setShowDoneEditing(false)}
       />
 
       {toastMessage && (

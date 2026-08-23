@@ -25,6 +25,17 @@ class IsAuthenticatedAndActive(BasePermission):
         return bool(request.user and request.user.is_authenticated and request.user.is_active)
 
 
+class IsOfficer(BasePermission):
+    """Only Officers (non-Member roles)."""
+    message = "Only Officers can perform this action."
+
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated and request.user.is_active):
+            return False
+        role = _role(request)
+        return role is not None and role != 'Member'
+
+
 class IsSuperAdmin(BasePermission):
     """Only the SuperAdmin role. Used for destructive operations and user management."""
     message = "Only SuperAdmin can perform this action."
@@ -70,11 +81,11 @@ class CanManageDTR(BasePermission):
 
 class CanManageFunds(BasePermission):
     """
-    SuperAdmin, President, Vice President, Treasurer can write fund payment records.
-    All authenticated users can read them (full roster, read-only for Members/Secretary).
+    SuperAdmin, President, Vice President, Treasurer, Auditor can write fund payment records.
+    All authenticated users can read them (full roster, read-only for Members/Secretary/PIO).
     """
-    message = "Only SuperAdmin, President, Vice President, or Treasurer can edit fund records."
-    _WRITE_ROLES = {'SuperAdmin', 'President', 'Vice President', 'Treasurer'}
+    message = "Only SuperAdmin, President, Vice President, Treasurer, or Auditor can edit fund records."
+    _WRITE_ROLES = {'SuperAdmin', 'President', 'Vice President', 'Treasurer', 'Auditor'}
 
     def has_permission(self, request, view):
         if not (request.user and request.user.is_authenticated and request.user.is_active):
@@ -115,25 +126,22 @@ class CanAccessAttachment(BasePermission):
     def has_object_permission(self, request, view, obj):
         role = _role(request)
         
-        if obj.employee_id:
-            # Upload/View: SuperAdmin, Pres, VP + the employee themselves for viewing
-            if role in CanManageEmployees._WRITE_ROLES:
-                return True
-            # Allow the linked employee to view their own attachment
-            if request.method in SAFE_METHODS:
-                try:
-                    if request.user.profile.employee_id == obj.employee_id:
-                        return True
-                except AttributeError:
-                    pass
+        # Read access mirrors the parent record's visibility
+        if request.method in SAFE_METHODS:
+            if obj.employee_id:
+                return True  # All authenticated users can view employees
+            if obj.fund_payment_id:
+                return True  # All authenticated users can view fund payments
+            if obj.dtr_batch_id:
+                return role in CanManageDTR._WRITE_ROLES  # Only DTR managers can view batches
             return False
             
+        # Write access remains strictly locked to managers
+        if obj.employee_id:
+            return role in CanManageEmployees._WRITE_ROLES
         elif obj.dtr_batch_id:
-            # Upload/View: SuperAdmin, Pres, VP, Secretary
             return role in CanManageDTR._WRITE_ROLES
-            
         elif obj.fund_payment_id:
-            # Upload/View: SuperAdmin, Pres, VP, Treasurer
             return role in CanManageFunds._WRITE_ROLES
             
         return False

@@ -53,6 +53,8 @@ class UserProfile(models.Model):
         ('Vice President', 'Vice President'),
         ('Secretary', 'Secretary'),
         ('Treasurer', 'Treasurer'),
+        ('Auditor', 'Auditor'),
+        ('PIO', 'PIO'),
         ('Member', 'Member'),
     ]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -98,6 +100,50 @@ class DTRBatch(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class DTREndpoint(models.Model):
+    """
+    Stores the exact date a DTR was generated for a given cutoff period.
+    Keyed by (month, year, cutoff) — exactly one endpoint per period.
+    DTRs are often generated ahead of the cutoff's actual end date (e.g.,
+    generating the June 1–15 DTR on June 10). The endpoint records where
+    placeholder-filled days begin. When the next DTR is generated, the system
+    checks real scan data for the gap between the endpoint and the cutoff end
+    to find genuine absences and carry them forward as deductions.
+    """
+    month = models.IntegerField()
+    year = models.IntegerField()
+    cutoff = models.IntegerField()   # 1 or 16, matching DTRBatch's convention
+    endpoint_date = models.DateField()
+    # Stores a JSON list of integer day numbers that were holidays in this period.
+    # e.g. [4, 12] means day 4 and day 12 were holidays in the cutoff.
+    # Stored server-side so the next generation can reliably exclude them from
+    # the carryover gap check without depending on the local browser IndexedDB cache.
+    holidays_json = models.TextField(default='[]', blank=True)
+    set_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='dtr_endpoints')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def get_holidays(self):
+        """Returns the list of holiday day numbers (integers) for this period."""
+        import json
+        try:
+            return json.loads(self.holidays_json or '[]')
+        except (ValueError, TypeError):
+            return []
+
+    def set_holidays(self, days: list):
+        """Stores the list of holiday day numbers (integers) for this period."""
+        import json
+        self.holidays_json = json.dumps([int(d) for d in days])
+
+    class Meta:
+        unique_together = ('month', 'year', 'cutoff')
+        ordering = ['-year', '-month', '-cutoff']
+
+    def __str__(self):
+        return f"DTREndpoint {self.year}/{self.month:02d} cutoff {self.cutoff} → {self.endpoint_date}"
 
 
 class FundPayment(models.Model):

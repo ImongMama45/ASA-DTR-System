@@ -31,6 +31,7 @@ export default function HistoricalAttendanceTable() {
 
   const [startDate, setStartDate] = useState(formatDate(lastWeek));
   const [endDate, setEndDate] = useState(formatDate(today));
+  const [showFilter, setShowFilter] = useState(false);
 
   const fetchHistory = () => {
     setLoading(true);
@@ -111,28 +112,53 @@ export default function HistoricalAttendanceTable() {
 
   return (
     <div className="card" style={{ marginBottom: 24 }}>
-      <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Calendar size={18} color="#0f766e" />
-          <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>Attendance Log History</span>
+      <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <Calendar size={18} color="#0f766e" style={{ flexShrink: 0 }} />
+          <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Attendance Log History
+          </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <input 
-            type="date" 
-            value={startDate} 
-            onChange={e => setStartDate(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-          />
-          <span style={{ color: '#64748b' }}>to</span>
-          <input 
-            type="date" 
-            value={endDate} 
-            onChange={e => setEndDate(e.target.value)}
-            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-          />
-          <button onClick={fetchHistory} className="btn btn-primary" style={{ padding: '6px 12px', fontSize: 13, gap: 6 }}>
-            <Filter size={14} /> Filter
+        <div style={{ position: 'relative' }}>
+          <button 
+            onClick={() => setShowFilter(!showFilter)} 
+            className="btn btn-primary" 
+            style={{ padding: '6px 12px', fontSize: 13, gap: 6, display: 'flex', alignItems: 'center' }}
+          >
+            <Filter size={14} /> <span className="hide-mobile">Filter</span>
           </button>
+          
+          {showFilter && (
+            <div 
+              style={{ 
+                position: 'absolute', top: '100%', right: 0, marginTop: 8, zIndex: 50,
+                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+                padding: 16, boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                display: 'flex', flexDirection: 'column', gap: 12, minWidth: 200
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Filter by Date</div>
+              <input 
+                type="date" 
+                value={startDate} 
+                onChange={e => setStartDate(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
+              />
+              <input 
+                type="date" 
+                value={endDate} 
+                onChange={e => setEndDate(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
+              />
+              <button 
+                onClick={() => { fetchHistory(); setShowFilter(false); }} 
+                className="btn btn-primary" 
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                Apply
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

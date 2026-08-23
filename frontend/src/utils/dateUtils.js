@@ -144,16 +144,21 @@ export function generateTime(duty, hoursPerDay, seed) {
     // ✅ Work backwards: earliest In = 12:30 - requiredMins
     // This guarantees Out is never before 12:30
     const floorOutMin = 12 * 60 + 30;   // 12:30 PM = 750 min
-    const capOutMin = 13 * 60 + 30;   // 1:30 PM  = 810 min
+    
+    // dynamically extend capOutMin if requiredMins is large (e.g., > 6 hours)
+    // normal cap is 1:30 PM, but if they need more, extend it to give 30m wiggle room!
+    const baseCapOutMin = 13 * 60 + 30; 
+    const capOutMin = Math.max(baseCapOutMin, (7 * 60) + requiredMins + 30);
 
     const latestArrMin = 7 * 60 + 59;   // 7:59 AM latest In
     const earliestArrMin = floorOutMin - requiredMins; // e.g. 3hrs → 9:30 earliest
 
     // Clamp: if required hours > 5.5hrs, earliest would go before 7:00 — floor at 7:00
     const arrFloor = Math.max(7 * 60, earliestArrMin);
-    const arrCap = Math.min(latestArrMin, floorOutMin - requiredMins + (30 * 60 / 60));
-    // Ensure floor ≤ cap (safety)
-    const safeArrCap = Math.max(arrFloor, Math.min(latestArrMin, floorOutMin - requiredMins));
+    
+    // Use capOutMin - requiredMins instead of floorOutMin - requiredMins to allow arrival variation for high required hours
+    const maxArrivalForCap = capOutMin - requiredMins;
+    const safeArrCap = Math.max(arrFloor, Math.min(latestArrMin, maxArrivalForCap));
 
     const arrTotalMin = randInt(seed, 1, arrFloor, Math.max(arrFloor, safeArrCap));
     const arrH = Math.floor(arrTotalMin / 60);
@@ -193,7 +198,9 @@ export function generateTime(duty, hoursPerDay, seed) {
     const arrH = Math.floor(arrTotalMin / 60);
     const arrM = arrTotalMin % 60;
 
-    const capMin = 18 * 60 + 10;  // 1090 min = 6:10 PM, hard ceiling
+    const baseCapMin = 18 * 60 + 10;  // 1090 min = 6:10 PM, hard ceiling
+    const minRequiredCap = arrTotalMin + requiredMins;
+    const capMin = Math.max(baseCapMin, minRequiredCap + 30); // dynamically extend cap
 
     // Desired departure before any constraints
     const naturalDep = arrTotalMin + requiredMins + overtimeMins;
@@ -201,7 +208,7 @@ export function generateTime(duty, hoursPerDay, seed) {
     // Floor: whichever is later — 5:00 PM or when required hours finish
     const rawFloor = Math.max(arrTotalMin + requiredMins, 17 * 60);
 
-    // ✅ Fix: if required hours alone exceed 6:10, collapse floor down to cap
+    // ✅ Fix: if required hours alone exceed capMin, collapse floor down to cap
     //    so resolveOut always receives a valid range (floor ≤ cap)
     const safeFloor = Math.min(rawFloor, capMin);
 

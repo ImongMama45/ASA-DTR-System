@@ -262,6 +262,14 @@ export default function CameraModal({ isOpen, onClose, currentEmployeeId }) {
       {/* Action Phase — employee identified, choose intent */}
       {showActionPhase && (
         <div style={{ marginTop: 20, width: '100%', maxWidth: 400, textAlign: 'center' }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: '50%', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 28, fontWeight: 700, margin: '0 auto 12px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.4)', border: '2px solid #334155'
+          }}>
+            {status.employee_name ? status.employee_name.split(' ').map(w => w[0]).join('').slice(0, 2) : '?'}
+          </div>
           <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
             {status.employee_name}
           </div>
@@ -345,6 +353,16 @@ export default function CameraModal({ isOpen, onClose, currentEmployeeId }) {
               : 'rgba(239, 68, 68, 0.15)',
           border: `1px solid ${result.type === 'success' ? '#22c55e40' : '#ef444440'}`,
         }}>
+          {status?.employee_name && (
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+              color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 24, fontWeight: 700, margin: '0 auto 12px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)', border: '2px solid #334155'
+            }}>
+              {status.employee_name.split(' ').map(w => w[0]).join('').slice(0, 2)}
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 4 }}>
             {result.type === 'success' ? <CheckCircle size={20} color="#22c55e" /> : <AlertTriangle size={20} color="#ef4444" />}
             <span style={{

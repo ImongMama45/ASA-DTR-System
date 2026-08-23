@@ -4,7 +4,7 @@ import { fetchDashboardStats, fetchOnlineUsers, sendHeartbeat, fetchTreasurySumm
 import { Users, FileText, UserCheck, Archive, Wifi, WifiOff, FileSpreadsheet, Server, Circle, Wallet, ChevronDown } from 'lucide-react';
 import AttendanceStatsCard from '../components/AttendanceStatsCard';
 import HistoricalAttendanceTable from '../components/HistoricalAttendanceTable';
-import TardinessStatusCard from '../components/TardinessStatusCard';
+import ListOfSAsModal from '../components/ListOfSAsModal';
 
 const ROLE_COLORS = {
   SuperAdmin: { bg: '#7c3aed', text: '#fff' },
@@ -24,6 +24,7 @@ export default function Dashboard({ isOnline, setPage }) {
   const [loading, setLoading] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState(true);
   const [serverExpanded, setServerExpanded] = useState(false);
+  const [showSAsModal, setShowSAsModal] = useState(false);
 
   const heartbeatRef = useRef(null);
   const pollRef = useRef(null);
@@ -56,12 +57,20 @@ export default function Dashboard({ isOnline, setPage }) {
 
     // Heartbeat every 10 s (keeps our own last_seen fresh)
     heartbeatRef.current = setInterval(() => {
-      sendHeartbeat().catch(() => { });
+      if (!document.hidden) sendHeartbeat().catch(() => { });
     }, 10_000);
 
-    // Poll online users every 10 s
+    // Poll server stats + online users staggered
     pollRef.current = setInterval(() => {
-      loadOnlineUsers();
+      if (!document.hidden) {
+        // Run loadServer first
+        loadServer().then(() => {
+            // Then run online users after a small delay
+            setTimeout(() => {
+                if (!document.hidden) loadOnlineUsers();
+            }, 1000);
+        });
+      }
     }, 10_000);
 
     return () => {
@@ -72,11 +81,10 @@ export default function Dashboard({ isOnline, setPage }) {
 
   async function loadServer() {
     try {
-      const [stats, tSummary] = await Promise.all([
-        fetchDashboardStats(),
-        fetchTreasurySummary()
-      ]);
+      // Fetch sequentially instead of Promise.all to reduce burst spikes
+      const stats = await fetchDashboardStats();
       setServerStats(stats);
+      const tSummary = await fetchTreasurySummary();
       setTreasury(tSummary);
     } catch { /* offline */ }
   }
@@ -99,6 +107,26 @@ export default function Dashboard({ isOnline, setPage }) {
 
   return (
     <div>
+      {/* ── Section header: Quick Stats + SA Modal trigger ──────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8 }}>Quick Stats</span>
+        {isOnline && (
+          <button
+            onClick={() => setShowSAsModal(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 8, flexShrink: 0,
+              background: 'linear-gradient(135deg, #1e293b, #334155)',
+              color: '#f8fafc', border: 'none', fontWeight: 700, fontSize: 12,
+              cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+              letterSpacing: 0.2,
+            }}
+          >
+            <Users size={14} /> List of SAs
+          </button>
+        )}
+      </div>
+
       {/* ── Primary stat row ─────────────────────────────────────────────── */}
       <div className="stats-grid">
         {/* Total Employees */}
@@ -157,7 +185,9 @@ export default function Dashboard({ isOnline, setPage }) {
       {/* ── Attendance Stats ─────────────────────────────────────────────── */}
       {isOnline && <AttendanceStatsCard />}
       {isOnline && <HistoricalAttendanceTable />}
-      {isOnline && <TardinessStatusCard />}
+
+      {/* List of SAs Modal */}
+      {showSAsModal && <ListOfSAsModal onClose={() => setShowSAsModal(false)} />}
 
       {/* ── Main content row ─────────────────────────────────────────────── */}
       <div className={`dashboard-layout ${isOnline ? '' : 'offline'}`}>

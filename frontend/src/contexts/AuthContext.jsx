@@ -63,6 +63,9 @@ export function AuthProvider({ children }) {
       }
       if (res.ok) {
         setUser(await res.json());
+      } else if (res.status === 429) {
+        // Do not clear tokens or log out on rate limit. Let the next poll retry.
+        console.warn('Rate limited on /auth/me/. Preserving session state.');
       } else {
         logout();
       }
@@ -73,7 +76,11 @@ export function AuthProvider({ children }) {
     }
   }, [refreshAccessToken, logout]);
 
-  useEffect(() => { fetchMe(); }, [fetchMe]);
+  useEffect(() => { 
+    fetchMe(); 
+    const interval = setInterval(fetchMe, 60000); // 60 seconds background refresh
+    return () => clearInterval(interval);
+  }, [fetchMe]);
 
   const login = useCallback(async (username, password) => {
     const res = await fetch(`${API_BASE}/auth/login/`, {
@@ -119,8 +126,10 @@ export function AuthProvider({ children }) {
     canManageEmployees: ['SuperAdmin', 'President', 'Vice President'].includes(user?.role),
     canDeleteEmployees: user?.role === 'SuperAdmin',
     canCreateDTR: ['SuperAdmin', 'President', 'Vice President', 'Secretary'].includes(user?.role),
-    canEditFunds: ['SuperAdmin', 'President', 'Vice President', 'Treasurer'].includes(user?.role),
+    canEditFunds: ['SuperAdmin', 'President', 'Vice President', 'Treasurer', 'Auditor'].includes(user?.role),
     canManageUsers: user?.role === 'SuperAdmin',
+    // President can view user list, create users, set passwords, change roles — but NOT deactivate
+    canViewUsers: ['SuperAdmin', 'President'].includes(user?.role),
     canScanAttendance: !!user?.role && user?.role !== 'Member',
   };
 

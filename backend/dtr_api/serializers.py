@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Employee, DTRBatch, FundPayment, Attachment, TreasuryTransaction, AttendanceRecord, AttendanceAnomaly
+from .models import Employee, DTRBatch, DTREndpoint, FundPayment, Attachment, TreasuryTransaction, AttendanceRecord, AttendanceAnomaly
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -119,3 +119,22 @@ class AttendanceAnomalySerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return obj.employee.name if obj.employee else '[Unknown]'
+
+
+class DTREndpointSerializer(serializers.ModelSerializer):
+    set_by_username = serializers.SerializerMethodField()
+    holidays = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DTREndpoint
+        fields = ['id', 'month', 'year', 'cutoff', 'endpoint_date', 'set_by_username', 'updated_at', 'holidays']
+        read_only_fields = ['id', 'set_by_username', 'updated_at', 'holidays']
+
+    def get_set_by_username(self, obj):
+        if obj.set_by:
+            return obj.set_by.username
+        return None
+
+    def get_holidays(self, obj):
+        """Returns the list of holiday day numbers (integers) stored for this period."""
+        return obj.get_holidays()

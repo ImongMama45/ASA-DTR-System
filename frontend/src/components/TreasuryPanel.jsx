@@ -68,7 +68,7 @@ function ModalShell({ children, onClose, width = 420, side = false }) {
 
 // ─── Deposit / Disburse buttons + 2-step confirmation flow ──────────────────
 
-export function TreasuryActions({ canEditFunds, onComplete }) {
+export function TreasuryActions({ canEditFunds, editUnlocked = false, onComplete }) {
   const [mode, setMode] = useState(null); // 'DEPOSIT' | 'WITHDRAWAL' | null
   const [step, setStep] = useState('form'); // 'form' | 'confirm'
   const [amount, setAmount] = useState('');
@@ -88,6 +88,7 @@ export function TreasuryActions({ canEditFunds, onComplete }) {
   if (!canEditFunds) return null;
 
   const openModal = (type) => {
+    if (!editUnlocked) return; // guarded
     setMode(type);
     setStep('form');
     setAmount('');
@@ -170,32 +171,47 @@ export function TreasuryActions({ canEditFunds, onComplete }) {
   const accentSoft = isDeposit ? '#dcfce7' : '#fee2e2';
   const accentDark = isDeposit ? '#15803d' : '#b91c1c';
 
+  // Shared disabled button style
+  const lockedStyle = {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '8px 14px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+    cursor: 'not-allowed', opacity: 0.45, userSelect: 'none',
+    transition: 'opacity 0.2s',
+  };
+
   return (
     <>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+        {/* Deposit Funds */}
         <button
           onClick={() => openModal('DEPOSIT')}
-          style={{
+          disabled={!editUnlocked}
+          title={!editUnlocked ? 'Enter Edit Mode to use this' : ''}
+          style={editUnlocked ? {
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '8px 14px', borderRadius: 10, border: '1px solid #86efac',
             background: '#f0fdf4', color: '#15803d', fontSize: 13, fontWeight: 700,
             cursor: 'pointer', transition: 'background 0.15s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#dcfce7')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = '#f0fdf4')}
+          } : { ...lockedStyle, border: '1px solid #d1d5db', background: '#f9fafb', color: '#6b7280' }}
+          onMouseEnter={(e) => editUnlocked && (e.currentTarget.style.background = '#dcfce7')}
+          onMouseLeave={(e) => editUnlocked && (e.currentTarget.style.background = '#f0fdf4')}
         >
           <Plus size={15} /> Deposit Funds
         </button>
+
+        {/* Disburse Funds */}
         <button
           onClick={() => openModal('WITHDRAWAL')}
-          style={{
+          disabled={!editUnlocked}
+          title={!editUnlocked ? 'Enter Edit Mode to use this' : ''}
+          style={editUnlocked ? {
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '8px 14px', borderRadius: 10, border: '1px solid #fca5a5',
             background: '#fef2f2', color: '#b91c1c', fontSize: 13, fontWeight: 700,
             cursor: 'pointer', transition: 'background 0.15s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#fee2e2')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = '#fef2f2')}
+          } : { ...lockedStyle, border: '1px solid #d1d5db', background: '#f9fafb', color: '#6b7280' }}
+          onMouseEnter={(e) => editUnlocked && (e.currentTarget.style.background = '#fee2e2')}
+          onMouseLeave={(e) => editUnlocked && (e.currentTarget.style.background = '#fef2f2')}
         >
           <Minus size={15} /> Disburse Funds
         </button>

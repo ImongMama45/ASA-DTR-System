@@ -42,6 +42,13 @@ const STATUS_CONFIG = {
   red:    { bg: '#fef2f2', color: '#991b1b', dot: '#ef4444', label: 'Critical' },
 };
 
+const DAILY_STATUS_CONFIG = {
+  blank:  { bg: 'transparent', color: '#cbd5e1', dot: 'transparent', label: '—' },
+  ontime: { bg: '#f0fdf4', color: '#166534', dot: '#22c55e', label: 'On Time' },
+  late:   { bg: '#fff7ed', color: '#9a3412', dot: '#f97316', label: 'Late' },
+  absent: { bg: '#fef2f2', color: '#991b1b', dot: '#ef4444', label: 'Absent' },
+};
+
 export default function TardinessStatusCard() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -64,8 +71,14 @@ export default function TardinessStatusCard() {
 
   useEffect(() => { fetchData(period); }, [period]);
 
-  const counts = { green: 0, orange: 0, red: 0 };
-  data.forEach(e => { if (counts[e.status] !== undefined) counts[e.status]++; });
+  const counts = { blank: 0, ontime: 0, late: 0, absent: 0 };
+  data.forEach(e => {
+    if (e.daily_status && counts[e.daily_status] !== undefined) {
+      counts[e.daily_status]++;
+    } else if (!e.daily_status) {
+      counts.blank++;
+    }
+  });
 
   const goNext = () => {
     const n = nextCutoff(period.year, period.month, period.cutoff);
@@ -103,7 +116,7 @@ export default function TardinessStatusCard() {
       {list.length === 0 ? (
         <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>No employees in this duty schedule.</div>
       ) : (
-        <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 240, overflowY: 'auto', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
@@ -116,9 +129,9 @@ export default function TardinessStatusCard() {
             </thead>
             <tbody>
               {list.map(e => {
-                const cfg = STATUS_CONFIG[e.status] || STATUS_CONFIG.green;
                 const isDetailOpen = !!expandedDetailsMap[e.employee_id];
                 const hasLates = e.late_count > 0 || (e.late_details && e.late_details.length > 0);
+                const dCfg = DAILY_STATUS_CONFIG[e.daily_status] || DAILY_STATUS_CONFIG.blank;
 
                 return (
                   <Fragment key={e.employee_id}>
@@ -133,9 +146,11 @@ export default function TardinessStatusCard() {
                       {e.minutes_late_total > 0 ? `${e.minutes_late_total}m` : '--'}
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: cfg.bg, color: cfg.color, fontSize: 11, fontWeight: 700 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: cfg.dot, display: 'inline-block' }} />
-                        {cfg.label}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: dCfg.bg, color: dCfg.color, fontSize: 11, fontWeight: 700 }}>
+                        {dCfg.dot !== 'transparent' && (
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: dCfg.dot, display: 'inline-block' }} />
+                        )}
+                        {dCfg.label}
                       </span>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
@@ -223,12 +238,15 @@ export default function TardinessStatusCard() {
 
           {/* Quick summary status dots */}
           <div style={{ display: 'flex', gap: 6, marginLeft: 8 }} onClick={e => e.stopPropagation()}>
-            {Object.entries(STATUS_CONFIG).map(([s, cfg]) => (
-              <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: 'rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: 11, fontWeight: 600 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: cfg.dot, display: 'inline-block' }} />
-                {counts[s]}
-              </span>
-            ))}
+            {Object.entries(DAILY_STATUS_CONFIG).map(([s, cfg]) => {
+              if (s === 'blank') return null;
+              return (
+                <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 10, background: 'rgba(255,255,255,0.1)', color: '#f8fafc', fontSize: 11, fontWeight: 600 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: cfg.dot, display: 'inline-block' }} />
+                  {counts[s]}
+                </span>
+              );
+            })}
           </div>
         </div>
 

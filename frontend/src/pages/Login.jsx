@@ -29,13 +29,16 @@ export default function Login() {
 
   useEffect(() => {
     let cancelled = false;
+    // Use the root URL (no auth needed) for the liveness ping.
+    // A 401 still means Django is up — only 502/503/504 mean the server is down.
+    const PING_URL = API_BASE.replace(/\/api$/, '/');
     async function checkBackend() {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(`${API_BASE}/auth/me/`, {
+        const res = await fetch(PING_URL, {
           signal: controller.signal,
-          cache: 'no-store',          // never use a cached response
+          cache: 'no-store',
         });
         clearTimeout(timeout);
         // 502/503/504 = Vite proxy couldn't reach Django — server is down

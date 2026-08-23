@@ -104,15 +104,22 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 100,
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.AnonRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
+        'user': '3000/day',
         'anon': '100/day',
-        'user': '1000/day',
-        'login': '10/minute',   # Applied only to the login endpoint
-        'attendance_live': '60/minute',   # 5s polling on /attendance/live/
-        'attendance_anomalies': '30/minute',  # Polled on /attendance/anomalies/
+        'login': '10/minute',
+        'attendance_live': '800/hour',
+        'attendance_anomalies': '800/hour',
+        'attendance_stats': '300/hour',
+        'attendance_history': '120/hour',
+        'dashboard_view': '400/hour',
+        'online_users': '400/hour',
+        'treasury_summary': '100/hour',
+        'auth_me': '1000/hour',
     },
 }
 

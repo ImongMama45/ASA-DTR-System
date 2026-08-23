@@ -37,6 +37,7 @@ export default function LiveAttendanceHistory({ period, selectedDate }) {
   const [loading, setLoading] = useState(false);
   const [expandedEmployee, setExpandedEmployee] = useState(null);
   const [proofModal, setProofModal] = useState({ isOpen: false, imageUrl: null, adminNotes: null });
+  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     const { start, end } = getDateRange(period, selectedDate);
@@ -68,7 +69,10 @@ export default function LiveAttendanceHistory({ period, selectedDate }) {
 
   return (
     <div className="card" style={{ marginBottom: 24 }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        style={{ padding: '16px 20px', borderBottom: expanded ? '1px solid #e2e8f0' : 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+      >
         <Calendar size={18} color="#6366f1" />
         <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>Attendance History</span>
         <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>
@@ -76,17 +80,19 @@ export default function LiveAttendanceHistory({ period, selectedDate }) {
            period === 'week' ? '— last 7 days' :
            period === 'month' ? '— last 30 days' : '— rolling 12 months'}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 12 }}>
           {Object.keys(byEmployee).length} employee(s) · {records.length} scans
+          <ChevronDown size={20} color="#64748b" style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
         </span>
       </div>
 
-      {loading ? (
+      {expanded && (
+        loading ? (
         <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>Loading...</div>
       ) : records.length === 0 ? (
         <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>No records found for this period.</div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto', maxHeight: 500, overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
@@ -169,6 +175,7 @@ export default function LiveAttendanceHistory({ period, selectedDate }) {
             </tbody>
           </table>
         </div>
+      )
       )}
 
       {/* Proof Modal */}

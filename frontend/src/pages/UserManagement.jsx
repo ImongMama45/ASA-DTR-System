@@ -14,12 +14,14 @@ const ROLE_COLORS = {
   'Vice President': { bg: '#e0f2fe', color: '#0c4a6e', border: '#bae6fd' },
   Secretary: { bg: '#dcfce7', color: '#166534', border: '#bbf7d0' },
   Treasurer: { bg: '#fce7f3', color: '#9d174d', border: '#fbcfe8' },
+  Auditor: { bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' },
+  PIO: { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
   Member: { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
 };
-const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Vice President', 'President', 'SuperAdmin'];
+const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Auditor', 'PIO', 'Vice President', 'President', 'SuperAdmin'];
 
 export default function UserManagement({ isOnline }) {
-  const { authFetch, user: currentUser } = useAuth();
+  const { authFetch, user: currentUser, isSuperAdmin } = useAuth();
   const [users, setUsers] = useState([]);
   const [employees, setEmployees] = useState([]); // all employees from IndexedDB
   const [loading, setLoading] = useState(true);
@@ -240,17 +242,20 @@ export default function UserManagement({ isOnline }) {
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <button className="btn btn-sm btn-primary" onClick={() => openModal('set-password', u)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <KeyRound size={12} /> {u.has_usable_password ? 'Reset PW' : 'Set PW'}
-                          </button>
-                          {!isSelf && (
+                          {(isSuperAdmin || u.role !== 'SuperAdmin') && (
+                            <button className="btn btn-sm btn-primary" onClick={() => openModal('set-password', u)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <KeyRound size={12} /> {u.has_usable_password ? 'Reset PW' : 'Set PW'}
+                            </button>
+                          )}
+                          {!isSelf && (isSuperAdmin || u.role !== 'SuperAdmin') && (
                             <button className="btn btn-sm btn-outline" onClick={() => openModal('set-role', u)}
                               style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                               <UserCog size={12} /> Role
                             </button>
                           )}
-                          {!isSelf && (
+                          {/* Only SuperAdmin can deactivate/activate accounts */}
+                          {!isSelf && isSuperAdmin && (
                             <button className={`btn btn-sm ${u.is_active ? 'btn-danger' : 'btn-success'}`}
                               onClick={() => handleToggleActive(u, !u.is_active)}
                               style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -309,7 +314,7 @@ export default function UserManagement({ isOnline }) {
                 <label className="form-label">Role</label>
                 <select className="form-select" value={createForm.role}
                   onChange={e => setCreateForm(f => ({ ...f, role: e.target.value }))}>
-                  {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  {ALL_ROLES.filter(r => isSuperAdmin || r !== 'SuperAdmin').map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
             </div>
@@ -406,7 +411,7 @@ export default function UserManagement({ isOnline }) {
             <div className="form-group">
               <label className="form-label">New Role</label>
               <select className="form-select" value={newRole} onChange={e => setNewRole(e.target.value)}>
-                {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                {ALL_ROLES.filter(r => isSuperAdmin || r !== 'SuperAdmin').map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div className="btn-row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>

@@ -14,6 +14,12 @@ from .models import UserProfile, Employee
 class LoginThrottle(ScopedRateThrottle):
     scope = 'login'
 
+class AuthMeThrottle(ScopedRateThrottle):
+    scope = 'auth_me'
+
+class OnlineUsersThrottle(ScopedRateThrottle):
+    scope = 'online_users'
+
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 def _profile_data(user):
@@ -134,6 +140,7 @@ def token_refresh_view(request):
 # ─── GET /api/auth/me/ ────────────────────────────────────────────────────────
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AuthMeThrottle])
 def me_view(request):
     """Returns the currently authenticated user's profile data. Also stamps last_seen."""
     from django.utils import timezone
@@ -207,13 +214,21 @@ def set_password_view(request, user_id):
     Expects { password }.
     """
     requester_role = getattr(getattr(request.user, 'profile', None), 'role', None)
-    if requester_role != 'SuperAdmin':
-        return Response({'error': 'Only SuperAdmin can set passwords for other users.'}, status=status.HTTP_403_FORBIDDEN)
+    if requester_role not in {'SuperAdmin', 'President'}:
+        return Response({'error': 'Only SuperAdmin or President can set passwords for other users.'}, status=status.HTTP_403_FORBIDDEN)
 
     try:
         target_user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
         return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        target_role = target_user.profile.role
+    except Exception:
+        target_role = None
+
+    if target_role == 'SuperAdmin' and requester_role != 'SuperAdmin':
+        return Response({'error': 'Only SuperAdmin can modify SuperAdmin accounts.'}, status=status.HTTP_403_FORBIDDEN)
 
     new_password = request.data.get('password', '')
     if len(new_password) < 8:
@@ -263,6 +278,7 @@ def heartbeat_view(request):
 # ─── GET /api/auth/online-users/ ─────────────────────────────────────────────
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([OnlineUsersThrottle])
 def online_users_view(request):
     """
     Returns a list of users who have been seen in the last 30 seconds.
@@ -301,8 +317,8 @@ def users_list_view(request):
     Used by the User Management UI.
     """
     requester_role = getattr(getattr(request.user, 'profile', None), 'role', None)
-    if requester_role != 'SuperAdmin':
-        return Response({'error': 'Only SuperAdmin can view all users.'}, status=status.HTTP_403_FORBIDDEN)
+    if requester_role not in {'SuperAdmin', 'President'}:
+        return Response({'error': 'Only SuperAdmin or President can view all users.'}, status=status.HTTP_403_FORBIDDEN)
 
     users = User.objects.select_related('profile', 'profile__employee').all().order_by('username')
     data = []
@@ -319,6 +335,7 @@ def users_list_view(request):
             emp_name = u.username
             emp_id = None
             profile_pic = None
+            emp = None
 
         data.append({
             'id': u.id,
@@ -346,8 +363,8 @@ def create_user_view(request):
     Expects { username, password, role, employee_id (optional) }.
     """
     requester_role = getattr(getattr(request.user, 'profile', None), 'role', None)
-    if requester_role != 'SuperAdmin':
-        return Response({'error': 'Only SuperAdmin can create users.'}, status=status.HTTP_403_FORBIDDEN)
+    if requester_role not in {'SuperAdmin', 'President'}:
+        return Response({'error': 'Only SuperAdmin or President can create users.'}, status=status.HTTP_403_FORBIDDEN)
 
     username = request.data.get('username', '').strip()
     password = request.data.get('password', '')
@@ -361,9 +378,12 @@ def create_user_view(request):
     if User.objects.filter(username=username).exists():
         return Response({'error': f"Username '{username}' is already taken."}, status=status.HTTP_400_BAD_REQUEST)
 
-    valid_roles = {'SuperAdmin', 'President', 'Vice President', 'Secretary', 'Treasurer', 'Member'}
+    valid_roles = {'SuperAdmin', 'President', 'Vice President', 'Secretary', 'Treasurer', 'Auditor', 'PIO', 'Member'}
     if role not in valid_roles:
         return Response({'error': f"Invalid role."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if role == 'SuperAdmin' and requester_role != 'SuperAdmin':
+        return Response({'error': 'Only SuperAdmin can create new SuperAdmin accounts.'}, status=status.HTTP_403_FORBIDDEN)
 
     emp = None
     if employee_id:
@@ -402,21 +422,32 @@ def set_role_view(request, user_id):
     SuperAdmin cannot change their own role (safety guardrail).
     """
     requester_role = getattr(getattr(request.user, 'profile', None), 'role', None)
-    if requester_role != 'SuperAdmin':
-        return Response({'error': 'Only SuperAdmin can change user roles.'}, status=status.HTTP_403_FORBIDDEN)
+    if requester_role not in {'SuperAdmin', 'President'}:
+        return Response({'error': 'Only SuperAdmin or President can change user roles.'}, status=status.HTTP_403_FORBIDDEN)
 
     if request.user.id == user_id:
         return Response({'error': 'SuperAdmin cannot change their own role.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    valid_roles = {'SuperAdmin', 'President', 'Vice President', 'Secretary', 'Treasurer', 'Member'}
+    valid_roles = {'SuperAdmin', 'President', 'Vice President', 'Secretary', 'Treasurer', 'Auditor', 'PIO', 'Member'}
     new_role = request.data.get('role', '').strip()
     if new_role not in valid_roles:
-        return Response({'error': f"Invalid role. Must be one of: {', '.join(valid_roles)}"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': f"Invalid role. Must be one of: {', '.join(sorted(valid_roles))}"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if new_role == 'SuperAdmin' and requester_role != 'SuperAdmin':
+        return Response({'error': 'Only SuperAdmin can grant the SuperAdmin role.'}, status=status.HTTP_403_FORBIDDEN)
 
     try:
         target_user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
         return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        target_role = target_user.profile.role
+    except Exception:
+        target_role = None
+
+    if target_role == 'SuperAdmin' and requester_role != 'SuperAdmin':
+        return Response({'error': 'Only SuperAdmin can modify SuperAdmin accounts.'}, status=status.HTTP_403_FORBIDDEN)
 
     # Get or create profile
     profile, _ = UserProfile.objects.get_or_create(user=target_user)
@@ -451,6 +482,20 @@ def toggle_active_view(request, user_id):
     is_active = bool(request.data.get('is_active', True))
     target_user.is_active = is_active
     target_user.save()
+
+    # Also sync the linked Employee record so both pages stay in sync
+    try:
+        profile = target_user.profile
+        if profile.employee:
+            profile.employee.is_active = is_active
+            if not is_active:
+                from django.utils import timezone
+                profile.employee.end_date = timezone.now().date()
+            else:
+                profile.employee.end_date = None
+            profile.employee.save()
+    except Exception:
+        pass  # No profile or employee — that's fine
 
     action = 'activated' if is_active else 'deactivated'
     return Response({'message': f"User '{target_user.username}' has been {action}."})
@@ -545,4 +590,26 @@ def update_profile_info(request):
     ActivityLog.objects.create(user=user, action="Updated Profile Information", description="User updated their personal details.")
     
     return Response({'message': 'Profile updated successfully.'})
+
+
+# ─── POST /api/auth/verify-password/ ─────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def verify_password_view(request):
+    """
+    Re-verifies the currently logged-in user's own password.
+    Used by the FundTracker password gate before entering / exiting Edit Mode.
+    Expects { password }.
+    Returns 200 { ok: true } if correct, 403 if wrong.
+    """
+    password = request.data.get('password', '')
+    if not password:
+        return Response({'error': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = authenticate(request, username=request.user.username, password=password)
+    if user is None:
+        return Response({'error': 'Incorrect password. Please try again.'}, status=status.HTTP_403_FORBIDDEN)
+
+    return Response({'ok': True})
+
 

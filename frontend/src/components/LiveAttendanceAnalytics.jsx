@@ -1,6 +1,6 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from 'recharts';
-import { TrendingUp, AlertTriangle, Clock, Activity } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Clock, Activity, ChevronDown } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const PH_TZ = 'Asia/Manila';
@@ -31,6 +31,7 @@ export default function LiveAttendanceAnalytics({ period, selectedDate }) {
   const [stats, setStats] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -109,16 +110,22 @@ export default function LiveAttendanceAnalytics({ period, selectedDate }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             Attendance Split
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value">
-                <Cell fill={PRESENT_COLOR} />
-                <Cell fill={ABSENT_COLOR} />
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-              <Legend iconType="circle" iconSize={10} formatter={(v) => <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{v}</span>} />
-            </PieChart>
-          </ResponsiveContainer>
+          {(todayData.present > 0 || todayData.absent > 0) ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="value">
+                  <Cell fill={PRESENT_COLOR} />
+                  <Cell fill={ABSENT_COLOR} />
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+                <Legend iconType="circle" iconSize={10} formatter={(v) => <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{v}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12, border: '1px dashed #e2e8f0', borderRadius: 12 }}>
+              No attendance data for this day
+            </div>
+          )}
         </div>
 
         {/* Anomalies Bar */}
@@ -127,10 +134,10 @@ export default function LiveAttendanceAnalytics({ period, selectedDate }) {
             Anomalies Breakdown
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={anomalyData} margin={{ top: 20, right: 30, left: -20, bottom: 5 }} layout="vertical">
+            <BarChart data={anomalyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
               <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} width={75} axisLine={false} tickLine={false} />
               <Tooltip cursor={{ fill: 'rgba(0,0,0,0.02)' }} contentStyle={{ background: '#1e293b', borderRadius: 8, color: '#fff', border: 'none' }} />
               <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                 {anomalyData.map((entry, index) => (
@@ -188,15 +195,20 @@ export default function LiveAttendanceAnalytics({ period, selectedDate }) {
 
   return (
     <div className="card" style={{ marginBottom: 24 }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div 
+        onClick={() => setExpanded(!expanded)}
+        style={{ padding: '16px 20px', borderBottom: expanded ? '1px solid #e2e8f0' : 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+      >
         <TrendingUp size={18} color="#6366f1" />
         <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>Attendance Analytics</span>
         <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>
           {period === 'day' ? 'today' : period === 'week' ? '— last 7 days' : period === 'month' ? '— last 30 days' : '— rolling 12 months'}
         </span>
+        <ChevronDown size={20} color="#64748b" style={{ marginLeft: 'auto', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
       </div>
 
-      <div style={{ padding: 24 }}>
+      {expanded && (
+        <div style={{ padding: 24 }}>
         {loading ? (
           <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>Loading analytics...</div>
         ) : !stats ? (
@@ -204,9 +216,9 @@ export default function LiveAttendanceAnalytics({ period, selectedDate }) {
         ) : (
           <>
             {/* KPI row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px,1fr))', gap: 16, marginBottom: 32 }}>
+            <div style={{ display: 'flex', overflowX: 'auto', gap: 16, marginBottom: 32, paddingBottom: 8 }}>
               {kpis.map(k => (
-                <div key={k.label} style={{ background: k.bg, borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div key={k.label} style={{ flexShrink: 0, minWidth: 200, background: k.bg, borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ flexShrink: 0 }}>{k.icon}</div>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 800, color: k.color, lineHeight: 1 }}>{k.value}</div>
@@ -223,6 +235,7 @@ export default function LiveAttendanceAnalytics({ period, selectedDate }) {
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

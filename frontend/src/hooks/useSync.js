@@ -22,9 +22,18 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ── Read helpers ──────────────────────────────────────────────────────────────
+let employeesInFlight = null;
+
 export async function fetchEmployees() {
-  const data = await apiFetch('/employees/');
-  return Array.isArray(data) ? data : (data.results ?? []);
+  if (employeesInFlight) return employeesInFlight;
+  
+  employeesInFlight = apiFetch('/employees/').then(data => {
+    return Array.isArray(data) ? data : (data.results ?? []);
+  }).finally(() => {
+    employeesInFlight = null;
+  });
+  
+  return employeesInFlight;
 }
 
 export async function fetchBatches() {
@@ -42,6 +51,52 @@ export async function fetchOnlineUsers() {
 
 export async function sendHeartbeat() {
   return apiFetch('/auth/heartbeat/', { method: 'POST' });
+}
+
+// ── DTR Endpoint helpers ──────────────────────────────────────────────────────
+
+/**
+ * Fetches the stored endpoint for a given period.
+ * Returns the endpoint object or null if none exists for that period yet,
+ * or if the request fails for any reason (non-fatal: carryover is skipped).
+ */
+export async function fetchDTREndpoint({ month, year, cutoff }) {
+  try {
+    const res = await fetch(
+      `${API_BASE}/dtr/endpoint/?month=${month}&year=${year}&cutoff=${cutoff}`,
+      { headers: getAuthHeaders() }
+    );
+    // 404 = no endpoint set yet; any other non-ok also treated as "not available"
+    if (!res.ok) return null;
+    return res.json();
+  } catch (err) {
+    // Network error — treat as "not available"
+    console.warn('fetchDTREndpoint failed (non-fatal):', err.message);
+    return null;
+  }
+}
+
+/**
+ * Creates or updates the endpoint date (and holiday list) for a given period.
+ * endpoint_date must be a YYYY-MM-DD string.
+ * holidays is an optional array of integer day numbers that were holidays
+ * in this cutoff (e.g. [4, 12]). Defaults to [] if not provided.
+ */
+export async function setDTREndpoint({ month, year, cutoff, endpoint_date, holidays = [] }) {
+  return apiFetch('/dtr/endpoint/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ month, year, cutoff, endpoint_date, holidays }),
+  });
+}
+
+/**
+ * Fetches attendance records for one employee within an explicit date range.
+ * date_from / date_to are YYYY-MM-DD strings, inclusive on both ends.
+ * Separate from fetchEmployeeAttendance to keep param shapes distinct.
+ */
+export async function fetchEmployeeAttendanceRange(employeeId, { date_from, date_to }) {
+  return apiFetch(`/attendance/employee/${employeeId}/?date_from=${date_from}&date_to=${date_to}`);
 }
 
 export async function fetchTreasurySummary() {
@@ -96,6 +151,10 @@ export async function dismissAnomaly(anomalyId) {
   });
 }
 
+export async function fetchAttendanceLeaderboard() {
+  return apiFetch('/attendance/leaderboard/');
+}
+
 export async function submitManualAttendance(formData) {
   // Uses FormData for file upload (proof_image)
   const token = localStorage.getItem('access_token');
@@ -143,6 +202,10 @@ export async function updateServerEmployee(id, emp) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: emp.name, duty: emp.duty, office: emp.office || null, start_date: emp.start || null }),
   });
+}
+
+export async function restoreServerEmployee(id) {
+  return apiFetch(`/employees/${id}/restore/`, { method: 'PATCH' });
 }
 
 export async function deleteServerEmployee(id) {

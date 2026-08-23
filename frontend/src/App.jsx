@@ -16,7 +16,7 @@ import LiveAttendance from './pages/LiveAttendance';
 import CameraModal from './components/CameraModal';
 import ConfirmModal from './components/ConfirmModal';
 import { useSync } from './hooks/useSync';
-import { LayoutDashboard, Home, Users, Settings as SettingsIcon, Printer, Wallet, ShieldAlert, GraduationCap, UserCircle, Menu, X, ChevronRight, Activity, Camera } from 'lucide-react';
+import { LayoutDashboard, Home, Users, Settings as SettingsIcon, Printer, Wallet, ShieldAlert, GraduationCap, UserCircle, Menu, X, ChevronRight, Activity, Camera, LogOut, Wifi, WifiOff } from 'lucide-react';
 import './App.css';
 
 const PAGE_LABELS = {
@@ -33,13 +33,14 @@ const PAGE_LABELS = {
 
 // ─── Inner app — only rendered when authenticated ─────────────────────────────
 function AuthenticatedApp() {
-  const { user, logout, isSuperAdmin, canManageEmployees, canCreateDTR, canScanAttendance } = useAuth();
+  const { user, logout, isSuperAdmin, canManageEmployees, canCreateDTR, canScanAttendance, canViewUsers } = useAuth();
   const { isOnline, isSyncing } = useSync();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
-  const isOfficer = ['SuperAdmin', 'President', 'Vice President'].includes(user?.role);
+  // Officers: any role other than Member gets the System Dashboard
+  const isOfficer = !!user?.role && user?.role !== 'Member';
   const defaultPage = isOfficer ? 'dashboard' : 'my-dashboard';
   const [page, setPage] = useState(defaultPage);
 
@@ -58,10 +59,9 @@ function AuthenticatedApp() {
 
     { type: 'header', label: 'EMPLOYEES' },
     { id: 'employees', label: 'Employees', icon: <Users size={18} /> },
-    ...(canCreateDTR
+    ...(canViewUsers
       ? [
         { id: 'users', label: 'User Management', icon: <ShieldAlert size={18} /> },
-
       ]
       : []),
 
@@ -69,9 +69,9 @@ function AuthenticatedApp() {
     { id: 'funds', label: 'SA Fund', icon: <Wallet size={18} /> },
 
     { type: 'header', label: 'SYSTEM' },
-    ...(isSuperAdmin
+    { id: 'live-attendance', label: 'Live Attendance', icon: <Activity size={18} /> },
+    ...(canCreateDTR
       ? [
-        { id: 'live-attendance', label: 'Live Attendance', icon: <Activity size={18} /> },
         { id: 'generator', label: 'Generate DTR', icon: <SettingsIcon size={18} /> },
         { id: 'review', label: 'Review & Export', icon: <Printer size={18} /> }]
       : []),
@@ -93,8 +93,8 @@ function AuthenticatedApp() {
             <GraduationCap size={22} color="#fff" />
           </div>
           <div className="sidebar-brand-text">
-            <div className="sidebar-brand-title">ASA — DTR</div>
-            <div className="sidebar-brand-sub">System</div>
+            <div className="sidebar-brand-title">ASA System</div>
+            <div className="sidebar-brand-sub">Alliance of Student Assistants</div>
           </div>
           {mobile && (
             <button className="sidebar-close-btn" onClick={() => setSidebarOpen(false)}>
@@ -262,26 +262,23 @@ function AuthenticatedApp() {
           <div className="topbar-right">
             {canScanAttendance && (
               <button
+                className="topbar-scan-btn"
                 onClick={() => setIsCameraOpen(true)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                  background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8,
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer', marginRight: 12,
-                }}
               >
-                <Camera size={16} /> Scan QR
+                <Camera size={16} /> <span className="hide-mobile">Scan QR</span>
               </button>
             )}
-            {isSyncing && <span className="status-badge syncing">↻ Syncing…</span>}
-            <span className={`status-badge ${isOnline ? 'online' : 'offline'}`}>
-              {isOnline ? '● Online' : '○ Offline'}
+            {isSyncing && <span className="status-badge syncing">↻ <span className="hide-mobile">Syncing…</span></span>}
+            <span className={`status-badge ${isOnline ? 'online' : 'offline'}`} title={isOnline ? 'Online' : 'Offline'}>
+              {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />} <span className="hide-mobile">{isOnline ? 'Online' : 'Offline'}</span>
             </span>
             <button
               id="logout-btn"
               className="topbar-signout-btn"
               onClick={() => setShowLogoutModal(true)}
+              title="Sign Out"
             >
-              Sign Out
+              <LogOut size={14} /> <span className="hide-mobile">Sign Out</span>
             </button>
           </div>
         </header>
@@ -294,8 +291,8 @@ function AuthenticatedApp() {
           {page === 'review' && canCreateDTR && <Review isOnline={isOnline} />}
           {page === 'funds' && <FundTracker isOnline={isOnline} />}
           {page === 'settings' && <UserSettings />}
-          {page === 'users' && isSuperAdmin && <UserManagement />}
-          {page === 'live-attendance' && isSuperAdmin && <LiveAttendance />}
+          {page === 'users' && canViewUsers && <UserManagement isOnline={isOnline} />}
+          {page === 'live-attendance' && <LiveAttendance />}
         </main>
       </div>
 
