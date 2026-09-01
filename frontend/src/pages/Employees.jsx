@@ -602,7 +602,7 @@ export default function Employees({ isOnline }) {
             onClick={() => setShowImportForm(!showImportForm)}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Upload size={18} /> Import Employees
+              <Upload size={18} /> Export / Import Employees
             </div>
             {showImportForm ? <ChevronUp size={20} color="#64748b" /> : <ChevronDown size={20} color="#64748b" />}
           </div>
@@ -610,13 +610,22 @@ export default function Employees({ isOnline }) {
           {showImportForm && (
             <>
               <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
-                Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees. Duplicate names are skipped.
+                Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees, or export the current list.
               </p>
               <input ref={fileInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={handleFileUpload} />
-              <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
-                style={{ background: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {importing ? 'Importing…' : <><Upload size={16} /> Choose File (.csv / .json)</>}
-              </button>
+              <div className="btn-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
+                  style={{ background: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {importing ? 'Importing…' : <><Upload size={16} /> Import File</>}
+                </button>
+                <div style={{ width: 1, height: 24, background: '#cbd5e1', margin: '0 4px' }}></div>
+                <button className="btn btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <FileDown size={16} /> Export CSV
+                </button>
+                <button className="btn btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <FileJson size={16} /> Export JSON
+                </button>
+              </div>
               {importStatus && (
                 <div style={{ marginTop: 14 }}>
                   {importStatus.ok > 0 && <div className="alert alert-success">✅ {importStatus.ok} employee{importStatus.ok !== 1 ? 's' : ''} imported.</div>}
@@ -708,12 +717,7 @@ export default function Employees({ isOnline }) {
                   Officers Only
                 </label>
 
-                {employees.length > 0 && (
-                  <div className="btn-row" style={{ margin: 0, marginLeft: 8 }}>
-                    <button className="btn btn-sm btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileDown size={14} /> CSV</button>
-                    <button className="btn btn-sm btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><FileJson size={14} /> JSON</button>
-                  </div>
-                )}
+                {/* Export buttons moved to Export / Import card */}
               </div>
             </div>
 
