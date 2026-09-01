@@ -76,8 +76,8 @@ export function AuthProvider({ children }) {
     }
   }, [refreshAccessToken, logout]);
 
-  useEffect(() => { 
-    fetchMe(); 
+  useEffect(() => {
+    fetchMe();
     const interval = setInterval(fetchMe, 60000); // 60 seconds background refresh
     return () => clearInterval(interval);
   }, [fetchMe]);
