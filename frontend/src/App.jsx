@@ -211,7 +211,6 @@ function AuthenticatedApp() {
               >
                 <span className="sidebar-nav-icon">{n.icon}</span>
                 <span className="sidebar-nav-label">{n.label}</span>
-                {page === n.id && <ChevronRight size={14} className="sidebar-nav-arrow" />}
               </button>
             );
           })}
