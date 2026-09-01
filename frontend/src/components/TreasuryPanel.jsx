@@ -354,6 +354,7 @@ export function FundLogsButton() {
   const [error, setError] = useState('');
   const [expandedLogs, setExpandedLogs] = useState({});   // computation panel
   const [expandedCards, setExpandedCards] = useState({}); // card body
+  const [summaryData, setSummaryData] = useState(null);
 
   // ── Filter state ──────────────────────────────────────────────
   const [search, setSearch]         = useState('');
@@ -367,10 +368,16 @@ export function FundLogsButton() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/transactions/');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to load logs.');
-      setLogs(data.results ?? data);
+      const [txRes, sumRes] = await Promise.all([
+        apiFetch('/transactions/'),
+        apiFetch('/treasury/summary/')
+      ]);
+      const txData = await txRes.json();
+      const sumData = await sumRes.json();
+      
+      if (!txRes.ok) throw new Error(txData.detail || 'Failed to load logs.');
+      setLogs(txData.results ?? txData);
+      setSummaryData(sumData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -741,6 +748,35 @@ export function FundLogsButton() {
                 </div>
               );
             })}
+
+            {/* ── Baseline Card (SA Contributions) ── */}
+            {summaryData && !search && filterDir === 'all' && filterType === 'all' && !filterStartDate && !filterEndDate && !filterBy && (
+              <div style={{
+                background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 20px',
+                display: 'flex', flexDirection: 'column', gap: 6, opacity: 0.9, marginTop: 16
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>
+                        + {peso(summaryData.sa_contributions || 0)}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>SA Collections Baseline</div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 12, background: '#e2e8f0', color: '#475569' }}>
+                    Foundation
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, color: '#475569', marginTop: 4, paddingLeft: 46 }}>
+                  Total of all active and past SA fund contributions across all years. This is the starting baseline before any manual deposits or withdrawals.
+                </div>
+              </div>
+            )}
+
           </div>
         </ModalShell>
       )}

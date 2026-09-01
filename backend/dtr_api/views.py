@@ -535,7 +535,7 @@ from django.db.models import Sum
 from rest_framework import mixins
 from rest_framework.exceptions import ValidationError
 
-def _current_total_budget():
+def _current_total_budget_breakdown():
     contributions = FundPayment.objects.aggregate(total=Sum('amount'))['total'] or Decimal('0')
     deposits = TreasuryTransaction.objects.filter(
         transaction_type=TreasuryTransaction.TransactionType.DEPOSIT
@@ -549,7 +549,19 @@ def _current_total_budget():
     fund_edit_subs = TreasuryTransaction.objects.filter(
         transaction_type=TreasuryTransaction.TransactionType.FUND_EDIT_SUB
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-    return contributions + deposits - withdrawals + fund_edit_adds - fund_edit_subs
+    
+    total = contributions + deposits - withdrawals + fund_edit_adds - fund_edit_subs
+    return {
+        'total_budget': str(total),
+        'sa_contributions': str(contributions),
+        'deposits': str(deposits),
+        'withdrawals': str(withdrawals),
+        'adjustments_add': str(fund_edit_adds),
+        'adjustments_sub': str(fund_edit_subs)
+    }
+
+def _current_total_budget():
+    return Decimal(_current_total_budget_breakdown()['total_budget'])
 
 
 @api_view(['GET'])
@@ -557,7 +569,7 @@ def _current_total_budget():
 @throttle_classes([TreasurySummaryThrottle])
 def treasury_summary(request):
     """GET /api/treasury/summary/ — readable by all authenticated users."""
-    return Response({'total_budget': str(_current_total_budget())})
+    return Response(_current_total_budget_breakdown())
 
 
 class TreasuryTransactionViewSet(mixins.ListModelMixin,
