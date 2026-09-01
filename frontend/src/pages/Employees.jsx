@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
-import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter, QrCode, X, Download, ChevronUp, ChevronDown, Activity, MoreVertical } from 'lucide-react';
+import { Edit2, Plus, Upload, Users, FileDown, User, FileJson, AlertTriangle, KeyRound, UserCog, Search, Filter, QrCode, X, Download, ChevronUp, ChevronDown, Activity, MoreVertical, ClipboardList } from 'lucide-react';
 import { getAllEmployees, addEmployee, updateEmployee, deleteEmployee, seedEmployees, initDB } from '../db';
 import {
   fetchEmployees,
@@ -16,7 +16,8 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend } from 'recharts';
 import QRCode from 'qrcode';
 import FileUpload from '../components/FileUpload';
-import { formatUserId } from '../utils/dateUtils';
+import { formatUserId, MONTH_NAMES } from '../utils/dateUtils';
+import { exportAttendanceDocx } from '../utils/exportAttendanceDocx';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
@@ -224,6 +225,14 @@ export default function Employees({ isOnline }) {
   const fileInputRef = useRef();
   const [openMenuId, setOpenMenuId] = useState(null);
 
+  const [showAttModal, setShowAttModal] = useState(false);
+  const [attForm, setAttForm] = useState({
+    meetingName: localStorage.getItem('dtr_att_meeting') || '',
+    room: localStorage.getItem('dtr_att_room') || '',
+    date: new Date().toISOString().split('T')[0],
+    time: '16:00'
+  });
+
   function setField(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function setUField(k, v) { setUserForm(f => ({ ...f, [k]: v })); }
 
@@ -393,6 +402,39 @@ export default function Employees({ isOnline }) {
   }
   function exportJSON() {
     downloadFile(JSON.stringify(employees.map(({ name, duty, office, start }) => ({ name, duty, office: office || '', start: start || '' })), null, 2), 'employees.json', 'application/json');
+  }
+
+  function openAttendanceModal() {
+    const missingOffices = employees.filter(e => e.is_active !== false && !e.office);
+    if (missingOffices.length > 0) {
+      alert(`Cannot generate attendance sheet. The following active employees are missing an assigned office:\n\n${missingOffices.map(e => e.name).join('\n')}\n\nPlease edit their profiles to add an office first.`);
+      return;
+    }
+    setShowAttModal(true);
+  }
+
+  async function handleGenerateAttendance() {
+    localStorage.setItem('dtr_att_meeting', attForm.meetingName);
+    localStorage.setItem('dtr_att_room', attForm.room);
+    
+    const d = new Date(attForm.date);
+    const formattedDate = `${MONTH_NAMES[d.getMonth()].toUpperCase()} ${d.getDate()}, ${d.getFullYear()}`;
+    
+    let [hours, mins] = attForm.time.split(':');
+    let h = parseInt(hours, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    const formattedTime = `${h}:${mins} ${ampm}`;
+
+    await exportAttendanceDocx(employees, {
+      meetingName: attForm.meetingName,
+      room: attForm.room,
+      date: formattedDate,
+      time: formattedTime
+    });
+    
+    setShowAttModal(false);
   }
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -624,6 +666,10 @@ export default function Employees({ isOnline }) {
                 </button>
                 <button className="btn btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <FileJson size={16} /> Export JSON
+                </button>
+                <div style={{ width: 1, height: 24, background: '#cbd5e1', margin: '0 4px' }}></div>
+                <button className="btn btn-outline" onClick={openAttendanceModal} style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#0f766e', borderColor: '#ccfbf1', background: '#f0fdfa' }}>
+                  <ClipboardList size={16} /> Create Attendance Sheet (DOCX)
                 </button>
               </div>
               {importStatus && (
@@ -929,6 +975,56 @@ export default function Employees({ isOnline }) {
             <div className="btn-row">
               <button className="btn btn-outline" onClick={() => setQrModal(prev => ({ ...prev, showReissueConfirm: false }))}>Cancel</button>
               <button className="btn btn-danger" onClick={confirmReissueCard}>Yes, Re-generate</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attendance Sheet Modal ── */}
+      {showAttModal && (
+        <div className="modal-overlay">
+          <div className="modal-content card" style={{ maxWidth: 500, margin: '20px auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ClipboardList size={20} /> Generate Attendance Sheet
+              </h3>
+              <button onClick={() => setShowAttModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">Meeting / Event Name</label>
+              <input type="text" className="form-input" placeholder="e.g. TEAM BUILDING MEETING" 
+                value={attForm.meetingName} onChange={e => setAttForm({ ...attForm, meetingName: e.target.value })} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Date</label>
+                <input type="date" className="form-input" value={attForm.date} onChange={e => setAttForm({ ...attForm, date: e.target.value })} />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label className="form-label">Time</label>
+                <input type="time" className="form-input" value={attForm.time} onChange={e => setAttForm({ ...attForm, time: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 24 }}>
+              <label className="form-label">Room / Location</label>
+              <input type="text" className="form-input" placeholder="e.g. ROOM 203" 
+                value={attForm.room} onChange={e => setAttForm({ ...attForm, room: e.target.value })} />
+            </div>
+            
+            <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: 24 }}>
+              Note: The Dalubhasaan and ASA logos will be automatically inserted into the DOCX header if they exist in the system. The list will be grouped sequentially by office.
+            </p>
+
+            <div className="btn-row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowAttModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleGenerateAttendance} disabled={!attForm.meetingName}>
+                Generate DOCX
+              </button>
             </div>
           </div>
         </div>
