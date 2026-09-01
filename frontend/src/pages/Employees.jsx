@@ -33,11 +33,12 @@ const ROLE_COLORS = {
 };
 const ALL_ROLES = ['Member', 'Secretary', 'Treasurer', 'Auditor', 'PIO', 'Vice President', 'President', 'SuperAdmin'];
 const OFFICES = [
-  '', 'Finance Office', 'Registrar Office', 'Maintenance Office', 'Clinic',
-  'Admission/Guidance Office', 'HR Office', 'BSSW Program Head Office', 'ICES Office',
-  'BSE Program Head Office', 'BSPA Program Head Office', 'BTVTED/ABELS Program Head Office',
-  'BSA/BSAIS Program Head Office', 'GAD Office', 'Library', 'Admin Office',
-  'PE Department Office', 'BSIT Program Head Office', 'Alumni Office',
+  '', 'Finance', 'Registrar', 'Property', 'Clinic',
+  'Admission & Guidance', 'HR', 'BSSW Department', 'ICES',
+  'BSE Department', 'BSPA Department', 'BTVTED & ABELS Department',
+  'BSA & BSAIS Department', 'GAD', 'Supplies', 'LMSTC & DHRS',
+  'Library', 'OSAS', 'Admin', 'PE Department', 'BSIT Department',
+  'Alumni'
 ];
 
 function getAuthHeaders() {
