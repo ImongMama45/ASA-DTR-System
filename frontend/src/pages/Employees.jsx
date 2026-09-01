@@ -97,20 +97,6 @@ function parseCSV(text) {
   });
 }
 
-function parseJSON(text) {
-  let parsed;
-  try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON file.'); }
-  const list = Array.isArray(parsed) ? parsed : parsed.employees;
-  if (!Array.isArray(list)) throw new Error('JSON must be an array or { employees: [...] }.');
-  return list.map((row, i) => {
-    const name = (row.name || '').toString().toUpperCase().trim();
-    if (!name) throw new Error(`Item ${i + 1}: name is empty.`);
-    const duty = (row.duty || 'AM').toString().toUpperCase().trim();
-    if (!['AM', 'PM'].includes(duty)) throw new Error(`Item ${i + 1}: duty must be AM or PM.`);
-    return { name, duty, start: row.start || '' };
-  });
-}
-
 function downloadFile(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -374,8 +360,7 @@ export default function Employees({ isOnline }) {
     let rows;
     try {
       const text = await file.text();
-      const ext = file.name.split('.').pop().toLowerCase();
-      rows = ext === 'json' ? parseJSON(text) : parseCSV(text);
+      rows = parseCSV(text);
     } catch (err) { setImportStatus({ ok: 0, skipped: 0, errors: [err.message] }); setImporting(false); return; }
 
     let ok = 0, skipped = 0;
@@ -401,9 +386,6 @@ export default function Employees({ isOnline }) {
     const rows = employees.map(e => `${e.name},${e.duty},${e.office || ''},${e.start || ''}`);
     downloadFile(['name,duty,office,start', ...rows].join('\n'), 'employees.csv', 'text/csv');
   }
-  function exportJSON() {
-    downloadFile(JSON.stringify(employees.map(({ name, duty, office, start }) => ({ name, duty, office: office || '', start: start || '' })), null, 2), 'employees.json', 'application/json');
-  }
 
   function openAttendanceModal() {
     const missingOffices = employees.filter(e => e.is_active !== false && !e.office);
@@ -417,10 +399,10 @@ export default function Employees({ isOnline }) {
   async function handleGenerateAttendance() {
     localStorage.setItem('dtr_att_meeting', attForm.meetingName);
     localStorage.setItem('dtr_att_room', attForm.room);
-    
+
     const d = new Date(attForm.date);
     const formattedDate = `${MONTH_NAMES[d.getMonth()].toUpperCase()} ${d.getDate()}, ${d.getFullYear()}`;
-    
+
     let [hours, mins] = attForm.time.split(':');
     let h = parseInt(hours, 10);
     const ampm = h >= 12 ? 'PM' : 'AM';
@@ -434,7 +416,7 @@ export default function Employees({ isOnline }) {
       date: formattedDate,
       time: formattedTime
     });
-    
+
     setShowAttModal(false);
   }
 
@@ -653,13 +635,13 @@ export default function Employees({ isOnline }) {
           {showImportForm && (
             <>
               <p style={{ fontSize: '0.875rem', color: 'var(--text-muted, #666)', marginBottom: 12 }}>
-                Upload a <strong>.csv</strong> or <strong>.json</strong> file to bulk-add employees, or export the current list.
+                Upload a <strong>.csv</strong> file to bulk-add employees, or export the current list.
               </p>
-              <input ref={fileInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={handleFileUpload} />
+              <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleFileUpload} />
               <div className="btn-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()} disabled={importing}
                   style={{ background: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {importing ? 'Importing…' : <><Upload size={16} /> Import File</>}
+                  {importing ? 'Importing…' : <><Upload size={16} /> Import CSV</>}
                 </button>
                 <div style={{ width: 1, height: 24, background: '#cbd5e1', margin: '0 4px' }}></div>
                 <button className="btn btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -996,7 +978,7 @@ export default function Employees({ isOnline }) {
 
             <div className="form-group" style={{ marginBottom: 16 }}>
               <label className="form-label">Meeting / Event Name</label>
-              <input type="text" className="form-input" placeholder="e.g. TEAM BUILDING MEETING" 
+              <input type="text" className="form-input" placeholder="e.g. TEAM BUILDING MEETING"
                 value={attForm.meetingName} onChange={e => setAttForm({ ...attForm, meetingName: e.target.value })} />
             </div>
 
@@ -1013,10 +995,10 @@ export default function Employees({ isOnline }) {
 
             <div className="form-group" style={{ marginBottom: 24 }}>
               <label className="form-label">Room / Location</label>
-              <input type="text" className="form-input" placeholder="e.g. ROOM 203" 
+              <input type="text" className="form-input" placeholder="e.g. ROOM 203"
                 value={attForm.room} onChange={e => setAttForm({ ...attForm, room: e.target.value })} />
             </div>
-            
+
             <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: 24 }}>
               Note: The Dalubhasaan and ASA logos will be automatically inserted into the DOCX header if they exist in the system. The list will be grouped sequentially by office.
             </p>
