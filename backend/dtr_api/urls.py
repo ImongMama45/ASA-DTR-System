@@ -17,6 +17,7 @@ urlpatterns = [
     path('sheets-sync-now/', views.sheets_sync_now, name='sheets-sync-now'),
     path('sheets-sync-status/', views.sheets_sync_status, name='sheets-sync-status'),
     path('treasury/summary/', views.treasury_summary, name='treasury-summary'),
+    path('treasury/admin-clean/', views.admin_clean_treasury, name='treasury-admin-clean'),
     # ── Auth endpoints ──────────────────────────────────────────────────────
     path('auth/login/', auth_views.login_view, name='auth-login'),
     path('auth/token/refresh/', auth_views.token_refresh_view, name='auth-token-refresh'),

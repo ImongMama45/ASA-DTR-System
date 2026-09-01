@@ -649,6 +649,61 @@ class TreasuryTransactionViewSet(mixins.ListModelMixin,
                 description=f"You applied a batch fund edit affecting {len(employee_changes)} employees."
             )
 
+@api_view(['POST'])
+@permission_classes([IsSuperAdmin])
+def admin_clean_treasury(request):
+    """
+    Emergency cleanup endpoint to remove phantom FUND_EDIT transactions and 
+    recalculate running balances. Only callable by SuperAdmin.
+    """
+    try:
+        from django.db import transaction
+        from django.db.models import Sum
+        from decimal import Decimal
+        with transaction.atomic():
+            # 1. Delete all FUND_EDIT transactions
+            fe_qs = TreasuryTransaction.objects.filter(
+                transaction_type__in=[
+                    TreasuryTransaction.TransactionType.FUND_EDIT_ADD, 
+                    TreasuryTransaction.TransactionType.FUND_EDIT_SUB
+                ]
+            )
+            deleted_count, _ = fe_qs.delete()
+
+            # 2. Recalculate remaining running balances chronologically
+            txs = list(TreasuryTransaction.objects.order_by("created_at", "pk"))
+            fp_total = FundPayment.objects.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+            
+            running = fp_total
+            # First pass: find base
+            for tx in txs:
+                if tx.transaction_type == TreasuryTransaction.TransactionType.DEPOSIT:
+                    running -= tx.amount
+                elif tx.transaction_type == TreasuryTransaction.TransactionType.WITHDRAWAL:
+                    running += tx.amount
+                    
+            # Second pass: update forwards
+            updated = 0
+            for tx in txs:
+                if tx.transaction_type == TreasuryTransaction.TransactionType.DEPOSIT:
+                    running += tx.amount
+                elif tx.transaction_type == TreasuryTransaction.TransactionType.WITHDRAWAL:
+                    running -= tx.amount
+                    
+                if tx.running_balance != running:
+                    tx.running_balance = running
+                    tx.save(update_fields=["running_balance"])
+                    updated += 1
+
+            return Response({
+                'message': 'Treasury cleaned successfully.',
+                'deleted_fund_edits': deleted_count,
+                'recalculated_balances': updated,
+                'final_balance': str(running)
+            })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ── ATTENDANCE SYSTEM ────────────────────────────────────────────────────────
