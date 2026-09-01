@@ -609,14 +609,25 @@ export function FundLogsButton() {
                   {/* ── Collapsed header (always visible) ── */}
                   <div
                     onClick={() => setExpandedCards(prev => ({ ...prev, [log.id]: !prev[log.id] }))}
-                    style={{ padding: '12px 16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6 }}
+                    style={{ padding: '12px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: isDeduction ? '#dc2626' : '#16a34a' }}>
+                    {/* Left: Description and Serial No */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>
+                        {log.description}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        <span style={{ color: '#94a3b8' }}>Serial No:</span> {log.transaction_id}
+                      </div>
+                    </div>
+
+                    {/* Right: Amount and Badge */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: isDeduction ? '#dc2626' : '#16a34a', whiteSpace: 'nowrap' }}>
                         {isDeduction ? '− ' : '+ '}{peso(log.amount)}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: typeBadge.bg, color: typeBadge.color }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: typeBadge.bg, color: typeBadge.color }}>
                           {typeBadge.label}
                         </span>
                         {expandedCards[log.id]
@@ -624,16 +635,12 @@ export function FundLogsButton() {
                           : <ChevronDown size={14} color="#94a3b8" />}
                       </div>
                     </div>
-                    <div style={{ fontSize: 13, color: '#64748b' }}>
-                      <span style={{ color: '#94a3b8' }}>Title:</span> {log.transaction_id}
-                    </div>
                   </div>
 
                   {/* ── Expanded body ── */}
                   {expandedCards[log.id] && (
                     <div style={{ borderTop: '1px solid #e2e8f0', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: '#334155' }}>
-                        <div style={{ whiteSpace: 'pre-wrap' }}><span style={{ color: '#94a3b8' }}>Description:</span> {log.description}</div>
                         <div>
                           <span style={{ color: '#94a3b8' }}>Time and Date:</span>{' '}
                           {new Date(log.created_at).toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' })}
