@@ -109,7 +109,7 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'user': '3000/day',
+        'user': '10000/day',
         'anon': '100/day',
         'login': '10/minute',
         'attendance_live': '800/hour',
@@ -119,6 +119,7 @@ REST_FRAMEWORK = {
         'dashboard_view': '400/hour',
         'online_users': '400/hour',
         'treasury_summary': '100/hour',
+        'treasury_transaction': '60/hour',
         'auth_me': '1000/hour',
     },
 }

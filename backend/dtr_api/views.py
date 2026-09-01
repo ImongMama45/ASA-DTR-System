@@ -571,6 +571,14 @@ class TreasuryTransactionViewSet(mixins.ListModelMixin,
     """
     queryset = TreasuryTransaction.objects.all()
     serializer_class = TreasuryTransactionSerializer
+    throttle_scope = 'treasury_transaction'
+
+    def get_throttles(self):
+        # Only apply the scoped throttle on write actions; reads are unthrottled.
+        if self.action in ['create', 'destroy']:
+            from rest_framework.throttling import ScopedRateThrottle
+            return [ScopedRateThrottle()]
+        return []
 
     def get_permissions(self):
         if self.action in ['create', 'destroy']:
