@@ -648,9 +648,6 @@ export default function Employees({ isOnline }) {
                 <button className="btn btn-outline" onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <FileDown size={16} /> Export CSV
                 </button>
-                <button className="btn btn-outline" onClick={exportJSON} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <FileJson size={16} /> Export JSON
-                </button>
                 <div style={{ width: 1, height: 24, background: '#cbd5e1', margin: '0 4px' }}></div>
                 <button className="btn btn-outline" onClick={openAttendanceModal} style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#0f766e', borderColor: '#ccfbf1', background: '#f0fdfa' }}>
                   <ClipboardList size={16} /> Create Attendance Sheet (DOCX)
