@@ -359,9 +359,7 @@ export function FundLogsButton() {
   const [search, setSearch]         = useState('');
   const [filterDir, setFilterDir]   = useState('all');   // all | add | sub
   const [filterType, setFilterType] = useState('all');   // all | DEPOSIT | WITHDRAWAL | FUND_EDIT_ADD | FUND_EDIT_SUB
-  const [filterYear, setFilterYear] = useState('');
-  const [filterMonth, setFilterMonth] = useState('');
-  const [filterDay, setFilterDay]   = useState('');
+  const [filterDate, setFilterDate] = useState('');
   const [filterBy, setFilterBy]     = useState('');
 
   const loadLogs = useCallback(async () => {
@@ -389,11 +387,11 @@ export function FundLogsButton() {
     if (filterDir === 'sub' && !isDeduction) return false;
     if (filterType !== 'all' && log.transaction_type !== filterType) return false;
 
-    if (filterYear || filterMonth || filterDay) {
+    if (filterDate) {
       const d = new Date(log.created_at);
-      if (filterYear  && d.getFullYear()  !== Number(filterYear))  return false;
-      if (filterMonth && (d.getMonth() + 1) !== Number(filterMonth)) return false;
-      if (filterDay   && d.getDate()        !== Number(filterDay))   return false;
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      const localISOTime = (new Date(d.getTime() - tzOffset)).toISOString().split('T')[0];
+      if (localISOTime !== filterDate) return false;
     }
 
     if (filterBy) {
@@ -416,7 +414,7 @@ export function FundLogsButton() {
 
   const resetFilters = () => {
     setSearch(''); setFilterDir('all'); setFilterType('all');
-    setFilterYear(''); setFilterMonth(''); setFilterDay(''); setFilterBy('');
+    setFilterDate(''); setFilterBy('');
   };
 
   // Collect unique auditor names for the datalist
@@ -515,25 +513,14 @@ export function FundLogsButton() {
               </select>
             </div>
 
-            {/* Filter row 2: Date (Year / Month / Day) */}
+            {/* Filter row 2: Date */}
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>Date:</span>
               <input
-                type="number" placeholder="Year" value={filterYear}
-                onChange={e => setFilterYear(e.target.value)}
-                style={{ width: 72, padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit' }}
-              />
-              <select
-                value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-                style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, color: '#475569', fontFamily: 'inherit' }}
-              >
-                <option value="">Month</option>
-                {MONTH_LABELS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-              </select>
-              <input
-                type="number" placeholder="Day" min="1" max="31" value={filterDay}
-                onChange={e => setFilterDay(e.target.value)}
-                style={{ width: 54, padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'inherit' }}
+                type="date"
+                value={filterDate}
+                onChange={e => setFilterDate(e.target.value)}
+                style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, color: '#475569', fontFamily: 'inherit', width: 130 }}
               />
             </div>
 
@@ -548,7 +535,7 @@ export function FundLogsButton() {
               <datalist id="auditor-list">
                 {auditorNames.map(n => <option key={n} value={n} />)}
               </datalist>
-              {(search || filterDir !== 'all' || filterType !== 'all' || filterYear || filterMonth || filterDay || filterBy) && (
+              {(search || filterDir !== 'all' || filterType !== 'all' || filterDate || filterBy) && (
                 <button
                   onClick={resetFilters}
                   style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fef2f2', color: '#b91c1c', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
