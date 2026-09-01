@@ -226,6 +226,7 @@ export default function Employees({ isOnline }) {
   const [openMenuId, setOpenMenuId] = useState(null);
 
   const [showAttModal, setShowAttModal] = useState(false);
+  const [missingOfficesList, setMissingOfficesList] = useState(null);
   const [attForm, setAttForm] = useState({
     meetingName: localStorage.getItem('dtr_att_meeting') || '',
     room: localStorage.getItem('dtr_att_room') || '',
@@ -407,7 +408,7 @@ export default function Employees({ isOnline }) {
   function openAttendanceModal() {
     const missingOffices = employees.filter(e => e.is_active !== false && !e.office);
     if (missingOffices.length > 0) {
-      alert(`Cannot generate attendance sheet. The following active employees are missing an assigned office:\n\n${missingOffices.map(e => e.name).join('\n')}\n\nPlease edit their profiles to add an office first.`);
+      setMissingOfficesList(missingOffices);
       return;
     }
     setShowAttModal(true);
@@ -1025,6 +1026,32 @@ export default function Employees({ isOnline }) {
               <button className="btn btn-primary" onClick={handleGenerateAttendance} disabled={!attForm.meetingName}>
                 Generate DOCX
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Missing Offices Modal ── */}
+      {missingOfficesList && (
+        <div className="modal-overlay">
+          <div className="modal-content card" style={{ maxWidth: 500, margin: '20px auto', padding: 24 }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 700, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={20} />
+              Missing Assigned Offices
+            </h3>
+            <p style={{ margin: '16px 0', lineHeight: 1.5 }}>
+              Cannot generate attendance sheet. The following active employees are missing an assigned office:
+            </p>
+            <div style={{ maxHeight: 200, overflowY: 'auto', background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 20 }}>
+              <ul style={{ margin: 0, paddingLeft: 20, color: '#334155' }}>
+                {missingOfficesList.map(e => <li key={e.id} style={{ marginBottom: 4 }}><strong>{e.name}</strong></li>)}
+              </ul>
+            </div>
+            <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: 24 }}>
+              Please edit their profiles to add an office first.
+            </p>
+            <div className="btn-row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary" onClick={() => setMissingOfficesList(null)}>OK, I will fix them</button>
             </div>
           </div>
         </div>
