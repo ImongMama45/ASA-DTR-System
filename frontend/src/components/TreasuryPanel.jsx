@@ -370,7 +370,7 @@ export function FundLogsButton() {
     try {
       const [txRes, sumRes] = await Promise.all([
         apiFetch('/transactions/'),
-        apiFetch('/treasury/summary/')
+        apiFetch('/summary/')
       ]);
       const txData = await txRes.json();
       const sumData = await sumRes.json();
