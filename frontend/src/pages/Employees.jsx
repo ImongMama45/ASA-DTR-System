@@ -154,7 +154,7 @@ export default function Employees({ isOnline }) {
   const [dutyFilter, setDutyFilter] = useState('all');
   const [activeFilter, setActiveFilter] = useState('active');
   const [officersOnly, setOfficersOnly] = useState(false);
-  const [sortJoined, setSortJoined] = useState('newest');
+  const [sortOrder, setSortOrder] = useState('a-z');
 
   const [form, setForm] = useState({ id: null, name: '', duty: 'AM', office: '', start: '' });
   const [replacedEmployeeId, setReplacedEmployeeId] = useState('');
@@ -652,10 +652,13 @@ export default function Employees({ isOnline }) {
         });
 
         filteredEmployees.sort((a, b) => {
+          if (sortOrder === 'a-z') return a.name.localeCompare(b.name);
+          if (sortOrder === 'z-a') return b.name.localeCompare(a.name);
+
           if (!a.start && b.start) return 1;
           if (a.start && !b.start) return -1;
           if (!a.start && !b.start) return 0;
-          return sortJoined === 'newest' ? b.start.localeCompare(a.start) : a.start.localeCompare(b.start);
+          return sortOrder === 'newest' ? b.start.localeCompare(a.start) : a.start.localeCompare(b.start);
         });
 
         return (
@@ -692,9 +695,11 @@ export default function Employees({ isOnline }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <select className="form-select" value={sortJoined} onChange={e => setSortJoined(e.target.value)} style={{ padding: '6px 12px' }}>
-                    <option value="newest">Newest First</option>
-                    <option value="oldest">Oldest First</option>
+                  <select className="form-select" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ padding: '6px 12px' }}>
+                    <option value="a-z">Alphabetical (A-Z)</option>
+                    <option value="z-a">Alphabetical (Z-A)</option>
+                    <option value="newest">Newest Joined</option>
+                    <option value="oldest">Oldest Joined</option>
                   </select>
                 </div>
 

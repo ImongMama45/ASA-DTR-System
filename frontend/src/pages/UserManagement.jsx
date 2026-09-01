@@ -28,6 +28,7 @@ export default function UserManagement({ isOnline }) {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [officersOnly, setOfficersOnly] = useState(false);
+  const [sortOrder, setSortOrder] = useState('a-z');
 
   // Modal state
   const [modal, setModal] = useState(null); // 'set-password' | 'set-role' | 'create-user'
@@ -158,6 +159,14 @@ export default function UserManagement({ isOnline }) {
     return matchSearch && matchOfficers;
   });
 
+  filtered.sort((a, b) => {
+    const nameA = (a.employee_name || a.username || '').toLowerCase();
+    const nameB = (b.employee_name || b.username || '').toLowerCase();
+    if (sortOrder === 'a-z') return nameA.localeCompare(nameB);
+    if (sortOrder === 'z-a') return nameB.localeCompare(nameA);
+    return 0; // 'default' order
+  });
+
   return (
     <div>
       <div className="card">
@@ -172,6 +181,11 @@ export default function UserManagement({ isOnline }) {
                 value={search} onChange={e => setSearch(e.target.value)}
                 style={{ width: 200, padding: '6px 12px 6px 28px' }} />
             </div>
+            <select className="form-select" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ padding: '6px 12px' }}>
+              <option value="a-z">Alphabetical (A-Z)</option>
+              <option value="z-a">Alphabetical (Z-A)</option>
+              <option value="default">Default Order</option>
+            </select>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', cursor: 'pointer', userSelect: 'none', marginRight: 8 }}>
               <input type="checkbox" checked={officersOnly} onChange={e => setOfficersOnly(e.target.checked)} />
               Officers Only
