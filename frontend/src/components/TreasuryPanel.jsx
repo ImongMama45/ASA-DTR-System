@@ -359,7 +359,8 @@ export function FundLogsButton() {
   const [search, setSearch]         = useState('');
   const [filterDir, setFilterDir]   = useState('all');   // all | add | sub
   const [filterType, setFilterType] = useState('all');   // all | DEPOSIT | WITHDRAWAL | FUND_EDIT_ADD | FUND_EDIT_SUB
-  const [filterDate, setFilterDate] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   const [filterBy, setFilterBy]     = useState('');
 
   const loadLogs = useCallback(async () => {
@@ -387,11 +388,13 @@ export function FundLogsButton() {
     if (filterDir === 'sub' && !isDeduction) return false;
     if (filterType !== 'all' && log.transaction_type !== filterType) return false;
 
-    if (filterDate) {
+    if (filterStartDate || filterEndDate) {
       const d = new Date(log.created_at);
       const tzOffset = d.getTimezoneOffset() * 60000;
       const localISOTime = (new Date(d.getTime() - tzOffset)).toISOString().split('T')[0];
-      if (localISOTime !== filterDate) return false;
+      
+      if (filterStartDate && localISOTime < filterStartDate) return false;
+      if (filterEndDate && localISOTime > filterEndDate) return false;
     }
 
     if (filterBy) {
@@ -414,7 +417,7 @@ export function FundLogsButton() {
 
   const resetFilters = () => {
     setSearch(''); setFilterDir('all'); setFilterType('all');
-    setFilterDate(''); setFilterBy('');
+    setFilterStartDate(''); setFilterEndDate(''); setFilterBy('');
   };
 
   // Collect unique auditor names for the datalist
@@ -513,13 +516,20 @@ export function FundLogsButton() {
               </select>
             </div>
 
-            {/* Filter row 2: Date */}
+            {/* Filter row 2: Date Range */}
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>Date:</span>
               <input
                 type="date"
-                value={filterDate}
-                onChange={e => setFilterDate(e.target.value)}
+                value={filterStartDate}
+                onChange={e => setFilterStartDate(e.target.value)}
+                style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, color: '#475569', fontFamily: 'inherit', width: 130 }}
+              />
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>to</span>
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={e => setFilterEndDate(e.target.value)}
                 style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, color: '#475569', fontFamily: 'inherit', width: 130 }}
               />
             </div>
@@ -535,7 +545,7 @@ export function FundLogsButton() {
               <datalist id="auditor-list">
                 {auditorNames.map(n => <option key={n} value={n} />)}
               </datalist>
-              {(search || filterDir !== 'all' || filterType !== 'all' || filterDate || filterBy) && (
+              {(search || filterDir !== 'all' || filterType !== 'all' || filterStartDate || filterEndDate || filterBy) && (
                 <button
                   onClick={resetFilters}
                   style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fef2f2', color: '#b91c1c', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
