@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, RefreshCw, ShieldAlert, KeyRound, UserCog, Lock, CheckCircle2, UserCircle, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { Search, RefreshCw, ShieldAlert, KeyRound, UserCog, Lock, CheckCircle2, UserCircle, UserPlus, Eye, EyeOff, Filter } from 'lucide-react';
 import { getAllEmployees, seedEmployees } from '../db';
 import { fetchEmployees } from '../hooks/useSync';
 import Toast from '../components/Toast';
@@ -29,6 +29,8 @@ export default function UserManagement({ isOnline }) {
   const [search, setSearch] = useState('');
   const [officersOnly, setOfficersOnly] = useState(false);
   const [sortOrder, setSortOrder] = useState('a-z');
+  const [dutyFilter, setDutyFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('active');
 
   // Modal state
   const [modal, setModal] = useState(null); // 'set-password' | 'set-role' | 'create-user'
@@ -156,7 +158,11 @@ export default function UserManagement({ isOnline }) {
       (u.employee_name || '').toLowerCase().includes(search.toLowerCase()) ||
       u.role.toLowerCase().includes(search.toLowerCase());
     const matchOfficers = !officersOnly || u.role !== 'Member';
-    return matchSearch && matchOfficers;
+    const matchDuty = dutyFilter === 'all' || u.duty === dutyFilter;
+    const matchActive = activeFilter === 'all' ||
+      (activeFilter === 'active' && u.is_active !== false) ||
+      (activeFilter === 'archived' && u.is_active === false);
+    return matchSearch && matchOfficers && matchDuty && matchActive;
   });
 
   filtered.sort((a, b) => {
@@ -180,6 +186,24 @@ export default function UserManagement({ isOnline }) {
               <input type="text" className="form-input" placeholder="Search users…"
                 value={search} onChange={e => setSearch(e.target.value)}
                 style={{ width: 160, padding: '6px 12px 6px 28px' }} />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Filter size={14} color="#64748b" />
+              <select className="form-select" value={dutyFilter} onChange={e => setDutyFilter(e.target.value)} style={{ padding: '6px 12px' }}>
+                <option value="all">All Duties</option>
+                <option value="AM">AM Duty</option>
+                <option value="PM">PM Duty</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Filter size={14} color="#64748b" />
+              <select className="form-select" value={activeFilter} onChange={e => setActiveFilter(e.target.value)} style={{ padding: '6px 12px' }}>
+                <option value="active">Active Only</option>
+                <option value="archived">Archived</option>
+                <option value="all">All Status</option>
+              </select>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
