@@ -296,6 +296,7 @@ export default function FundTracker({ isOnline }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editUnlocked, setEditUnlocked] = useState(false); // true after password verified
   const [initialEditState, setInitialEditState] = useState(null);
+  const [baselineFetching, setBaselineFetching] = useState(false); // true while syncing before edit mode
   // pwGate: null | 'enter' | 'exit'
   const [pwGate, setPwGate] = useState(null);
   const [isNameCollapsed, setIsNameCollapsed] = useState(false);
@@ -459,11 +460,42 @@ export default function FundTracker({ isOnline }) {
     }
   }
 
-  function onPasswordVerifiedEnter() {
+  async function onPasswordVerifiedEnter() {
     setPwGate(null);
+    // ── Baseline sync ────────────────────────────────────────────────────────
+    // We MUST fetch a fresh snapshot from the server BEFORE capturing the
+    // initial state.  Without this, the background API sync that runs on page
+    // load can update `payments` AFTER the baseline is captured, causing
+    // finalizeEditMode() to mistake those server-side changes for user edits
+    // and create spurious FUND_EDIT_ADD transactions (the "adding too much" bug).
+    let baseline = { ...payments };
+    if (isOnline) {
+      setBaselineFetching(true);
+      try {
+        const res = await authFetch(`${API_BASE}/fund-payments/?year=${year}`);
+        if (res.ok) {
+          const data = await res.json();
+          const map = {};
+          data.forEach(p => {
+            const key = `${p.employee}-${p.year}-${p.month}-${p.cutoff}`;
+            map[key] = { amount: parseFloat(p.amount), date: p.modified_at ? p.modified_at.slice(0, 10) : '' };
+          });
+          localStorage.setItem(`fundPayments-${year}`, JSON.stringify(map));
+          queryClient.setQueryData(['fund-payments', year, { isOnline }], map);
+          baseline = map;
+        }
+      } catch (e) {
+        // Network error — fall back to whatever is currently in the local cache.
+        // No phantom edits can occur because we simply use the existing `payments`
+        // object (which is what finalizeEditMode() will also read from).
+        console.warn('Could not sync before entering edit mode, using local cache.', e);
+      } finally {
+        setBaselineFetching(false);
+      }
+    }
     setIsEditing(true);
     setEditUnlocked(true);
-    setInitialEditState({ ...payments });
+    setInitialEditState(baseline);
   }
 
   function onPasswordVerifiedExit() {
@@ -749,11 +781,14 @@ export default function FundTracker({ isOnline }) {
               <button
                 className={`btn ${isEditing ? 'btn-success' : 'btn-outline'}`}
                 onClick={toggleEditMode}
-                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                disabled={baselineFetching}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: baselineFetching ? 0.7 : 1 }}
               >
-                {isEditing
-                  ? <><Check size={16} /> Done Editing<Lock size={14} style={{ marginLeft: 2, opacity: 0.7 }} /></>
-                  : <><Edit3 size={16} /> Edit Mode<Lock size={14} style={{ marginLeft: 2, opacity: 0.6 }} /></>}
+                {baselineFetching
+                  ? <><Loader2 size={16} className="login-spinner" /> Syncing…</>
+                  : isEditing
+                    ? <><Check size={16} /> Done Editing<Lock size={14} style={{ marginLeft: 2, opacity: 0.7 }} /></>
+                    : <><Edit3 size={16} /> Edit Mode<Lock size={14} style={{ marginLeft: 2, opacity: 0.6 }} /></>}
               </button>
               <TreasuryActions canEditFunds={canEditFunds} editUnlocked={editUnlocked} onComplete={fetchTotalBudget} />
             </>
