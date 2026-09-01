@@ -674,15 +674,10 @@ def admin_clean_treasury(request):
             txs = list(TreasuryTransaction.objects.order_by("created_at", "pk"))
             fp_total = FundPayment.objects.aggregate(total=Sum("amount"))["total"] or Decimal("0")
             
+            # The baseline is just the SA contributions (fp_total).
             running = fp_total
-            # First pass: find base
-            for tx in txs:
-                if tx.transaction_type == TreasuryTransaction.TransactionType.DEPOSIT:
-                    running -= tx.amount
-                elif tx.transaction_type == TreasuryTransaction.TransactionType.WITHDRAWAL:
-                    running += tx.amount
-                    
-            # Second pass: update forwards
+            
+            # Update forwards
             updated = 0
             for tx in txs:
                 if tx.transaction_type == TreasuryTransaction.TransactionType.DEPOSIT:
