@@ -174,29 +174,36 @@ export default function UserManagement({ isOnline }) {
           <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <ShieldAlert size={20} /> User Management
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ position: 'relative' }}>
               <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
               <input type="text" className="form-input" placeholder="Search users…"
                 value={search} onChange={e => setSearch(e.target.value)}
-                style={{ width: 200, padding: '6px 12px 6px 28px' }} />
+                style={{ width: 160, padding: '6px 12px 6px 28px' }} />
             </div>
-            <select className="form-select" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ padding: '6px 12px' }}>
-              <option value="a-z">Alphabetical (A-Z)</option>
-              <option value="z-a">Alphabetical (Z-A)</option>
-              <option value="default">Default Order</option>
-            </select>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <select className="form-select" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ padding: '6px 12px' }}>
+                <option value="a-z">Alphabetical (A-Z)</option>
+                <option value="z-a">Alphabetical (Z-A)</option>
+                <option value="default">Default Order</option>
+              </select>
+            </div>
+
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', cursor: 'pointer', userSelect: 'none', marginRight: 8 }}>
               <input type="checkbox" checked={officersOnly} onChange={e => setOfficersOnly(e.target.checked)} />
               Officers Only
             </label>
-            <button className="btn btn-primary btn-sm" onClick={() => openCreateUser()}
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <UserPlus size={14} /> Create User
-            </button>
-            <button className="btn btn-outline btn-sm" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <RefreshCw size={14} /> Refresh
-            </button>
+
+            <div className="btn-row" style={{ margin: 0, marginLeft: 8 }}>
+              <button className="btn btn-primary btn-sm" onClick={() => openCreateUser()}
+                style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <UserPlus size={14} /> Create User
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <RefreshCw size={14} /> Refresh
+              </button>
+            </div>
           </div>
         </div>
 
