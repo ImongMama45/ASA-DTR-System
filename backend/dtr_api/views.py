@@ -661,13 +661,18 @@ def admin_clean_treasury(request):
         from django.db.models import Sum
         from decimal import Decimal
         with transaction.atomic():
-            # 1. Delete all FUND_EDIT transactions
-            fe_qs = TreasuryTransaction.objects.filter(
-                transaction_type__in=[
-                    TreasuryTransaction.TransactionType.FUND_EDIT_ADD, 
-                    TreasuryTransaction.TransactionType.FUND_EDIT_SUB
-                ]
-            )
+            wipe_all = request.data.get('wipe_all', False)
+            
+            if wipe_all:
+                fe_qs = TreasuryTransaction.objects.all()
+            else:
+                # 1. Delete all FUND_EDIT transactions
+                fe_qs = TreasuryTransaction.objects.filter(
+                    transaction_type__in=[
+                        TreasuryTransaction.TransactionType.FUND_EDIT_ADD, 
+                        TreasuryTransaction.TransactionType.FUND_EDIT_SUB
+                    ]
+                )
             deleted_count, _ = fe_qs.delete()
 
             # 2. Recalculate remaining running balances chronologically
