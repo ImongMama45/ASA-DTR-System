@@ -136,7 +136,14 @@ export default function HistoricalAttendanceTable() {
         </div>
         
         <div style={{ flex: 1 }} />
-        <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+            <input type="text" className="form-input" placeholder="Search SAs…"
+              value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+              style={{ width: 200, padding: '6px 12px 6px 28px' }} />
+          </div>
+          <div style={{ position: 'relative' }}>
           <button 
             onClick={() => setShowFilter(!showFilter)} 
             className="btn btn-primary" 
@@ -170,13 +177,7 @@ export default function HistoricalAttendanceTable() {
 
               <div style={{ height: 1, background: '#e2e8f0', margin: '4px 0' }} />
 
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Search & Filters</div>
-              <div style={{ position: 'relative' }}>
-                <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input type="text" className="form-input" placeholder="Search SAs…"
-                  value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                  style={{ width: '100%', padding: '6px 12px 6px 28px' }} />
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Filters</div>
 
               <select className="form-select" value={dutyFilter} onChange={e => setDutyFilter(e.target.value)} style={{ padding: '8px 12px' }}>
                 <option value="all">All Duties</option>
