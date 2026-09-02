@@ -79,12 +79,14 @@ from .supabase_client import get_public_url
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
+    employee_duty = serializers.SerializerMethodField()
+    employee_is_active = serializers.SerializerMethodField()
+    employee_role = serializers.SerializerMethodField()
     scanned_by_display = serializers.SerializerMethodField()
 
     class Meta:
         model = AttendanceRecord
-        fields = [
-            'id', 'employee', 'employee_name', 'scan_type', 'timestamp',
+            'id', 'employee', 'employee_name', 'employee_duty', 'employee_is_active', 'employee_role', 'scan_type', 'timestamp',
             'scanned_by', 'scanned_by_name', 'scanned_by_role', 'scanned_by_display',
             'source', 'location', 'proof_image', 'admin_notes', 'linked_anomaly',
         ]
@@ -95,6 +97,15 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return obj.employee.name if obj.employee else '[Deleted Employee]'
+
+    def get_employee_duty(self, obj):
+        return obj.employee.duty if obj.employee else 'AM'
+        
+    def get_employee_is_active(self, obj):
+        return obj.employee.is_active if obj.employee else False
+        
+    def get_employee_role(self, obj):
+        return obj.employee.role if obj.employee else 'Member'
 
     def get_scanned_by_display(self, obj):
         """Human-readable name of the officer who scanned."""
