@@ -212,6 +212,7 @@ export default function HistoricalAttendanceTable() {
             </div>
           )}
         </div>
+        </div>
       </div>
 
       <div style={{ padding: 20 }}>
