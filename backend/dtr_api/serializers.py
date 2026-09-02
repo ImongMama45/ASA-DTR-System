@@ -106,7 +106,10 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
         return obj.employee.is_active if obj.employee else False
         
     def get_employee_role(self, obj):
-        return obj.employee.role if obj.employee else 'Member'
+        if not obj.employee:
+            return 'Member'
+        profile = getattr(obj.employee, 'user_profile', None)
+        return getattr(profile, 'role', 'Member') if profile else 'Member'
 
     def get_scanned_by_display(self, obj):
         """Human-readable name of the officer who scanned."""
