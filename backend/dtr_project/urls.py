@@ -7,6 +7,6 @@ def home(request):
 
 urlpatterns = [
     path('', home),  # 👈 ADD THIS
-    path('admin/', admin.site.urls),
+    path('congtv/', admin.site.urls),
     path('api/', include('dtr_api.urls')),
 ]
