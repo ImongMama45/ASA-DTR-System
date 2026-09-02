@@ -1237,14 +1237,14 @@ def attendance_manual(request):
 @permission_classes([IsAuthenticated])
 def attendance_tardiness(request):
     """
-    GET /api/attendance/tardiness/?year=YYYY&month=MM&cutoff=1|2
-    SuperAdmin: full employee list (all active employees, 0-late shown as green).
-    Everyone else: only their own record, regardless of any employee_id param —
-    non-admin callers cannot request another employee's tardiness by editing the URL.
-    Includes specific late arrival dates/times under `late_details`.
+    GET /api/attendance/tardiness/
+    Returns tardiness and absence data for all active employees in the given cutoff.
+    Includes:
+      - late_count, minutes_late_total, late_details (timestamps of late arrivals)
+      - absent_count, absent_details (list of missed Mon-Fri working day strings)
     """
     import calendar
-    from datetime import datetime
+    from datetime import datetime, date as date_cls
 
     now = timezone.localtime(timezone.now())
     try:
@@ -1259,7 +1259,6 @@ def attendance_tardiness(request):
         year=year, month=month, cutoff=cutoff
     ).select_related('employee')
 
-    # Fetch all late anomalies for this cutoff period
     if cutoff == 1:
         start_dt = timezone.make_aware(datetime(year, month, 1, 0, 0, 0))
         end_dt = timezone.make_aware(datetime(year, month, 15, 23, 59, 59))
@@ -1294,40 +1293,124 @@ def attendance_tardiness(request):
             return 'orange'
         return 'red'
 
-    # Calculate Daily Status for Today
     today = timezone.localtime(timezone.now()).date()
     today_start = timezone.make_aware(datetime.combine(today, datetime.min.time()))
     today_end = timezone.make_aware(datetime.combine(today, datetime.max.time()))
-    
+
     today_logged_in = set(AttendanceRecord.objects.filter(
         timestamp__gte=today_start, timestamp__lte=today_end, scan_type__contains='ARRIVAL'
     ).values_list('employee_id', flat=True))
-    
+
     today_late_emps = set(AttendanceAnomaly.objects.filter(
         timestamp__gte=today_start, timestamp__lte=today_end, reason__startswith='LATE_ARRIVAL'
     ).values_list('employee_id', flat=True))
-    
+
     now_time = timezone.localtime(timezone.now()).time()
-    
+
     def _daily_status(emp_id, duty):
         if emp_id in today_logged_in:
-            if emp_id in today_late_emps:
-                return 'late'
-            return 'ontime'
-        else:
-            if duty == 'AM' and now_time.hour >= 13:
-                return 'absent'
-            elif duty == 'PM' and now_time.hour >= 18:
-                return 'absent'
-            elif duty not in ['AM', 'PM'] and now_time.hour >= 18:
-                return 'absent'
-            return 'blank'
+            return 'late' if emp_id in today_late_emps else 'ontime'
+        if duty == 'AM' and now_time.hour >= 13:
+            return 'absent'
+        if duty == 'PM' and now_time.hour >= 18:
+            return 'absent'
+        if duty not in ['AM', 'PM'] and now_time.hour >= 18:
+            return 'absent'
+        return 'blank'
 
-    # Build a dict of existing records keyed by employee_id
+    # -- Absence Calculation --------------------------------------------------
+
+    # Fetch DTREndpoint safely -- no 500 if no endpoint has been set yet
+    try:
+        ep = DTREndpoint.objects.get(month=month, year=year, cutoff=cutoff)
+        endpoint_date_cap = ep.endpoint_date
+        holiday_day_nums = set(ep.get_holidays())  # list[int] of day-of-month numbers
+    except DTREndpoint.DoesNotExist:
+        endpoint_date_cap = None
+        holiday_day_nums = set()
+
+    # Upper bound = min(natural cutoff end, endpoint_date if set, today)
+    upper_bound = end_dt.date()
+    if endpoint_date_cap:
+        upper_bound = min(upper_bound, endpoint_date_cap)
+    upper_bound = min(upper_bound, today)
+
+    # Reconstruct holiday full dates from integer day-of-month numbers scoped to (year, month)
+    holiday_dates = set()
+    for day_num in holiday_day_nums:
+        try:
+            holiday_dates.add(date_cls(year, month, day_num))
+        except ValueError:
+            pass  # invalid day for this month -- skip silently
+
+    # Bulk-fetch arrivals as (emp_id, date) set -- single query, O(1) per-employee lookup
+    arrived_set = set(
+        AttendanceRecord.objects.filter(
+            timestamp__gte=start_dt,
+            timestamp__date__lte=upper_bound,
+            scan_type__contains='ARRIVAL',
+        ).values_list('employee_id', 'timestamp__date')
+    )
+
+    cutoff_start_date = start_dt.date()
+
+    def _compute_absences(emp):
+        # Lower bound: use start_date if set; else fall back to created_at via localtime().
+        # created_at is stored in UTC -- timezone.localtime() prevents off-by-one-day bug
+        # for employees created after 16:00 UTC (midnight PHT).
+        if emp.start_date:
+            lower = max(cutoff_start_date, emp.start_date)
+        else:
+            lower = max(cutoff_start_date, timezone.localtime(emp.created_at).date())
+
+        # Upper bound: clamp by end_date if set.
+        # Note: currently defensive/dead code -- archiving also sets is_active=False,
+        # excluding the employee from the queryset entirely. Kept future-safe.
+        upper = upper_bound
+        if emp.end_date:
+            upper = min(upper, emp.end_date)
+
+        absent_dates = []
+        cursor = lower
+        while cursor <= upper:
+            # Only count Mon-Fri working days that are not holidays
+            if cursor.weekday() < 5 and cursor not in holiday_dates:
+                # Today partial-day exemption: do not flag absent until shift window closes
+                if cursor == today:
+                    skip = False
+                    if emp.duty == 'AM' and now_time.hour < 13:
+                        skip = True
+                    elif emp.duty != 'AM' and now_time.hour < 18:
+                        skip = True
+                    if skip:
+                        if cursor.day < calendar.monthrange(cursor.year, cursor.month)[1]:
+                            cursor = cursor.replace(day=cursor.day + 1)
+                        elif cursor.month == 12:
+                            cursor = date_cls(cursor.year + 1, 1, 1)
+                        else:
+                            cursor = date_cls(cursor.year, cursor.month + 1, 1)
+                        continue
+
+                if (emp.id, cursor) not in arrived_set:
+                    absent_dates.append(cursor)
+
+            # Advance cursor by one day
+            if cursor.day < calendar.monthrange(cursor.year, cursor.month)[1]:
+                cursor = cursor.replace(day=cursor.day + 1)
+            elif cursor.month == 12:
+                cursor = date_cls(cursor.year + 1, 1, 1)
+            else:
+                cursor = date_cls(cursor.year, cursor.month + 1, 1)
+
+        return len(absent_dates), [d.strftime('%b %d, %Y') for d in absent_dates]
+
+    # -- Build response -------------------------------------------------------
+
     records_by_emp = {r.employee_id: r for r in qs}
     results = []
     for emp in Employee.objects.filter(is_active=True).order_by('name'):
         r = records_by_emp.get(emp.id)
+        absent_count, absent_details = _compute_absences(emp)
         results.append({
             'employee_id': emp.id,
             'name': emp.name,
@@ -1337,6 +1420,8 @@ def attendance_tardiness(request):
             'status': _status(r.late_count if r else 0),
             'daily_status': _daily_status(emp.id, emp.duty),
             'late_details': lates_by_emp.get(emp.id, []),
+            'absent_count': absent_count,
+            'absent_details': absent_details,
         })
     return Response(results)
 
