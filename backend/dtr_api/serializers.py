@@ -86,6 +86,7 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AttendanceRecord
+        fields = [
             'id', 'employee', 'employee_name', 'employee_duty', 'employee_is_active', 'employee_role', 'scan_type', 'timestamp',
             'scanned_by', 'scanned_by_name', 'scanned_by_role', 'scanned_by_display',
             'source', 'location', 'proof_image', 'admin_notes', 'linked_anomaly',

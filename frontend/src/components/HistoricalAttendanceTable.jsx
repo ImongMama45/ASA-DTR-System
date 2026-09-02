@@ -61,10 +61,10 @@ export default function HistoricalAttendanceTable() {
   // Filter records
   const filteredRecords = records.filter(r => {
     if (searchQuery && !r.employee_name?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-    if (dutyFilter !== 'all' && r.employee_duty !== dutyFilter) return false;
+    if (dutyFilter !== 'all' && (r.employee_duty || 'AM') !== dutyFilter) return false;
     if (activeFilter === 'active' && r.employee_is_active === false) return false;
     if (activeFilter === 'archived' && r.employee_is_active !== false) return false;
-    if (officersOnly && r.employee_role === 'Member') return false;
+    if (officersOnly && (r.employee_role || 'Member') === 'Member') return false;
     return true;
   });
 
