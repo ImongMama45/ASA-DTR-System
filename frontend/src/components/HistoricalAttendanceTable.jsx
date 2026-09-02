@@ -135,44 +135,7 @@ export default function HistoricalAttendanceTable() {
           </span>
         </div>
         
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-            <input type="text" className="form-input" placeholder="Search SAs…"
-              value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-              style={{ width: 160, padding: '6px 12px 6px 28px' }} />
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Filter size={14} color="#64748b" />
-            <select className="form-select" value={dutyFilter} onChange={e => setDutyFilter(e.target.value)} style={{ padding: '6px 12px' }}>
-              <option value="all">All Duties</option>
-              <option value="AM">AM Duty</option>
-              <option value="PM">PM Duty</option>
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Filter size={14} color="#64748b" />
-            <select className="form-select" value={activeFilter} onChange={e => setActiveFilter(e.target.value)} style={{ padding: '6px 12px' }}>
-              <option value="active">Active Only</option>
-              <option value="archived">Archived</option>
-              <option value="all">All Status</option>
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <select className="form-select" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ padding: '6px 12px' }}>
-              <option value="a-z">Alphabetical (A-Z)</option>
-              <option value="z-a">Alphabetical (Z-A)</option>
-            </select>
-          </div>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', cursor: 'pointer', background: '#f8fafc', padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-            <input type="checkbox" checked={officersOnly} onChange={e => setOfficersOnly(e.target.checked)} style={{ margin: 0 }} />
-            Officers Only
-          </label>
-        </div>
+        <div style={{ flex: 1 }} />
         <div style={{ position: 'relative' }}>
           <button 
             onClick={() => setShowFilter(!showFilter)} 
@@ -204,6 +167,40 @@ export default function HistoricalAttendanceTable() {
                 onChange={e => setEndDate(e.target.value)}
                 style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13 }}
               />
+
+              <div style={{ height: 1, background: '#e2e8f0', margin: '4px 0' }} />
+
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Search & Filters</div>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <input type="text" className="form-input" placeholder="Search SAs…"
+                  value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                  style={{ width: '100%', padding: '6px 12px 6px 28px' }} />
+              </div>
+
+              <select className="form-select" value={dutyFilter} onChange={e => setDutyFilter(e.target.value)} style={{ padding: '8px 12px' }}>
+                <option value="all">All Duties</option>
+                <option value="AM">AM Duty</option>
+                <option value="PM">PM Duty</option>
+              </select>
+
+              <select className="form-select" value={activeFilter} onChange={e => setActiveFilter(e.target.value)} style={{ padding: '8px 12px' }}>
+                <option value="active">Active Only</option>
+                <option value="archived">Archived</option>
+                <option value="all">All Status</option>
+              </select>
+
+              <select className="form-select" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ padding: '8px 12px' }}>
+                <option value="a-z">Alphabetical (A-Z)</option>
+                <option value="z-a">Alphabetical (Z-A)</option>
+              </select>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', cursor: 'pointer' }}>
+                <input type="checkbox" checked={officersOnly} onChange={e => setOfficersOnly(e.target.checked)} style={{ margin: 0 }} />
+                Officers Only
+              </label>
+
+              <div style={{ height: 1, background: '#e2e8f0', margin: '4px 0' }} />
               <button 
                 onClick={() => { fetchHistory(); setShowFilter(false); }} 
                 className="btn btn-primary" 
