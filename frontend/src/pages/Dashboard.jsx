@@ -139,50 +139,79 @@ export default function Dashboard({ isOnline, setPage }) {
 
       {/* ── Primary stat row ─────────────────────────────────────────────── */}
       <div className="stats-grid">
-        {/* Total Employees */}
-        <div className="stat-box" style={{ background: 'linear-gradient(135deg, #1e3a5f, #1d4ed8)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <Users size={22} color="rgba(255,255,255,0.75)" />
-          </div>
-          <div className="stat-num">{serverStats ? serverStats.total_employees : totalCount}</div>
-          <div className="stat-lbl">Total Employees</div>
-        </div>
-
-        {/* Active Employees */}
-        <div className="stat-box" style={{ background: 'linear-gradient(135deg, #065f46, #059669)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <UserCheck size={22} color="rgba(255,255,255,0.75)" />
-          </div>
-          <div className="stat-num">{serverStats ? serverStats.active_employees : activeCount}</div>
-          <div className="stat-lbl">Active Employees</div>
-        </div>
-
-        {/* Archived Employees */}
-        <div className="stat-box" style={{ background: 'linear-gradient(135deg, #78350f, #d97706)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <Archive size={22} color="rgba(255,255,255,0.75)" />
-          </div>
-          <div className="stat-num">{serverStats ? serverStats.archived_employees : archivedCount}</div>
-          <div className="stat-lbl">Archived Employees</div>
-        </div>
-
-        {/* DTR Batches */}
-        <div className="stat-box" style={{ background: 'linear-gradient(135deg, #3b0764, #7c3aed)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <FileSpreadsheet size={22} color="rgba(255,255,255,0.75)" />
-          </div>
-          <div className="stat-num">{batches.length}</div>
-          <div className="stat-lbl">DTR Batches Generated</div>
-        </div>
-
-        {/* Total Accumulated Fund */}
-        <div className="stat-box" style={{ background: 'linear-gradient(135deg, #854d0e, #ca8a04)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <Wallet size={22} color="rgba(255,255,255,0.75)" />
-          </div>
-          <div className="stat-num">{treasury ? `₱${parseFloat(treasury.total_budget).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</div>
-          <div className="stat-lbl">Total Accumulated Fund</div>
-        </div>
+        {!serverStats ? (
+          /* Skeleton Loaders */
+          <>
+            <div className="skeleton-stat-box">
+              <div className="skeleton-text small" style={{ width: '40%' }}></div>
+              <div className="skeleton-text large" style={{ width: '70%', marginTop: '4px' }}></div>
+              <div className="skeleton-text small" style={{ width: '60%', marginTop: 'auto' }}></div>
+            </div>
+            <div className="skeleton-stat-box">
+              <div className="skeleton-text small" style={{ width: '40%' }}></div>
+              <div className="skeleton-text large" style={{ width: '50%', marginTop: '4px' }}></div>
+              <div className="skeleton-text small" style={{ width: '60%', marginTop: 'auto' }}></div>
+            </div>
+            <div className="skeleton-stat-box">
+              <div className="skeleton-text small" style={{ width: '40%' }}></div>
+              <div className="skeleton-text large" style={{ width: '50%', marginTop: '4px' }}></div>
+              <div className="skeleton-text small" style={{ width: '60%', marginTop: 'auto' }}></div>
+            </div>
+            <div className="skeleton-stat-box">
+              <div className="skeleton-text small" style={{ width: '40%' }}></div>
+              <div className="skeleton-text large" style={{ width: '30%', marginTop: '4px' }}></div>
+              <div className="skeleton-text small" style={{ width: '70%', marginTop: 'auto' }}></div>
+            </div>
+            <div className="skeleton-stat-box">
+              <div className="skeleton-text small" style={{ width: '40%' }}></div>
+              <div className="skeleton-text large" style={{ width: '80%', marginTop: '4px' }}></div>
+              <div className="skeleton-text small" style={{ width: '60%', marginTop: 'auto' }}></div>
+            </div>
+          </>
+        ) : (
+          /* Actual Data */
+          <>
+            <div className="stat-box" style={{ background: 'linear-gradient(135deg, #1e3a5f, #1d4ed8)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Users size={22} color="rgba(255,255,255,0.75)" />
+              </div>
+              <div className="stat-num">{serverStats.total_employees}</div>
+              <div className="stat-lbl">Total Employees</div>
+            </div>
+    
+            <div className="stat-box" style={{ background: 'linear-gradient(135deg, #065f46, #059669)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <UserCheck size={22} color="rgba(255,255,255,0.75)" />
+              </div>
+              <div className="stat-num">{serverStats.active_employees}</div>
+              <div className="stat-lbl">Active Employees</div>
+            </div>
+    
+            <div className="stat-box" style={{ background: 'linear-gradient(135deg, #78350f, #d97706)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Archive size={22} color="rgba(255,255,255,0.75)" />
+              </div>
+              <div className="stat-num">{serverStats.archived_employees}</div>
+              <div className="stat-lbl">Archived Employees</div>
+            </div>
+    
+            <div className="stat-box" style={{ background: 'linear-gradient(135deg, #3b0764, #7c3aed)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <FileSpreadsheet size={22} color="rgba(255,255,255,0.75)" />
+              </div>
+              <div className="stat-num">{batches.length}</div>
+              <div className="stat-lbl">DTR Batches Generated</div>
+            </div>
+    
+            <div className="stat-box" style={{ background: 'linear-gradient(135deg, #854d0e, #ca8a04)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Wallet size={22} color="rgba(255,255,255,0.75)" />
+              </div>
+              <div className="stat-num">{treasury ? `₱${parseFloat(treasury.total_budget).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</div>
+              <div className="stat-lbl">Total Accumulated Fund</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Offline banner ───────────────────────────────────────────────── */}

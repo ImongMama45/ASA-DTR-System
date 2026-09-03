@@ -162,6 +162,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if hasattr(employee, 'user_profile') and employee.user_profile.user:
             employee.user_profile.user.is_active = False
             employee.user_profile.user.save()
+        cache.delete('employees_list')
         return Response({'status': 'archived'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='restore')
@@ -174,6 +175,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if hasattr(employee, 'user_profile') and employee.user_profile.user:
             employee.user_profile.user.is_active = True
             employee.user_profile.user.save()
+        cache.delete('employees_list')
         return Response({'status': 'restored'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['delete'], url_path='hard-delete')
@@ -190,6 +192,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         # Deleting the Employee now leaves FundPayment.employee = NULL (SET_NULL)
         # preserving all historical payment records.
         employee.delete()
+        cache.delete('employees_list')
         return Response({'status': 'Funds cleared successfully.'}, status=status.HTTP_200_OK)
 
 
@@ -989,6 +992,7 @@ def attendance_scan(request):
     if anomaly_reason:
         anomaly_obj = _log_anomaly(employee, request.user, anomaly_reason)
 
+    cache.delete('dashboard_stats')
     return Response({
         'record': AttendanceRecordSerializer(record).data,
         'anomaly': AttendanceAnomalySerializer(anomaly_obj).data if anomaly_obj else None,
@@ -1261,6 +1265,7 @@ def attendance_manual(request):
         linked_anomaly.resolved_by_record = record
         linked_anomaly.save(update_fields=['reviewed', 'resolved_by_record'])
 
+    cache.delete('dashboard_stats')
     return Response(AttendanceRecordSerializer(record).data, status=status.HTTP_201_CREATED)
 
 
