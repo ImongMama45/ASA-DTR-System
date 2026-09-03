@@ -10,6 +10,7 @@ router.register(r'treasury/transactions', views.TreasuryTransactionViewSet, base
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('health/', views.health_check, name='health-check'),
     path('sync/', views.sync_view, name='sync'),
     path('dashboard/', views.dashboard_view, name='dashboard'),
     path('fund-payments/', views.fund_payments_list, name='fund-payments-list'),

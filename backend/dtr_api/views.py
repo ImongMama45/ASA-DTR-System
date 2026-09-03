@@ -127,13 +127,27 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def get_queryset(self):
-        qs = Employee.objects.all()
+        # NOTE: user_profile is joined here to avoid N+1 queries on the
+        # EmployeeSerializer's `role` field (employee.user_profile.role).
+        qs = Employee.objects.select_related('user_profile').all()
         active_param = self.request.query_params.get('active', None)
         if active_param == 'true':
             qs = qs.filter(is_active=True)
         elif active_param == 'false':
             qs = qs.filter(is_active=False)
         return qs
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        cache.delete('employees_list')
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        cache.delete('employees_list')
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        cache.delete('employees_list')
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete (archive): sets is_active=False and disables the linked User account.
@@ -410,16 +424,33 @@ def sync_view(request):
 @throttle_classes([DashboardThrottle])
 def dashboard_view(request):
     from django.db.models import Count
+    cached = cache.get('dashboard_stats')
+    if cached is not None:
+        return Response(cached)
     last_sync = SyncLog.objects.filter(success=True).order_by('-processed_at').first()
     active = Employee.objects.filter(is_active=True).count()
     archived = Employee.objects.filter(is_active=False).count()
-    return Response({
+    result = {
         'total_employees': active + archived,
         'active_employees': active,
         'archived_employees': archived,
         'total_batches': DTRBatch.objects.count(),
         'last_sync': last_sync.processed_at.strftime('%Y-%m-%d %H:%M') if last_sync else None,
-    })
+    }
+    cache.set('dashboard_stats', result, timeout=60)  # 60-second cache
+    return Response(result)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_check(request):
+    """
+    GET /api/health/
+    Lightweight uptime probe — no auth required, zero DB queries.
+    Safe to ping from UptimeRobot or any external monitor every 5 minutes
+    without side effects (does NOT stamp last_seen or touch any user data).
+    """
+    return Response({'status': 'ok'})
 
 
 
@@ -1408,7 +1439,7 @@ def attendance_tardiness(request):
 
     records_by_emp = {r.employee_id: r for r in qs}
     results = []
-    for emp in Employee.objects.filter(is_active=True).order_by('name'):
+    for emp in Employee.objects.select_related('user_profile').filter(is_active=True).order_by('name'):
         r = records_by_emp.get(emp.id)
         absent_count, absent_details = _compute_absences(emp)
         results.append({

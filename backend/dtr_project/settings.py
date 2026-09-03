@@ -90,6 +90,21 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ── In-process cache ──────────────────────────────────────────────────────────
+# LocMemCache is sufficient for the current single-worker Gunicorn deployment.
+# NOTE: If you ever scale to multiple Gunicorn workers (Render paid tier), each
+# process has its own independent memory — cache.delete() in worker A will NOT
+# clear worker B's cache, causing stale reads. Swap to django-redis at that point:
+#   BACKEND: 'django.core.cache.backends.redis.RedisCache'
+#   LOCATION: os.environ.get('REDIS_URL', 'redis://localhost:6379')
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'dtr-system-cache',
+    }
+}
+
+
 # CORS — allow frontend dev server and Netlify
 CORS_ALLOW_ALL_ORIGINS = True  # Tighten in production
 
